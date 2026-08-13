@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+<title>เขียนให้ — AI ทำการบ้านและแปลงเป็นลายมือ</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@500;600;700&family=Sarabun:wght@400;500;600&family=Mali:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <svg class="clip-icon" viewBox="0 0 40 60" aria-hidden="true"><path d="M20 2c8 0 14 6 14 14v26a10 10 0 0 1-20 0V20a4 4 0 0 1 8 0v20" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg>
+    <div class="topbar__title">
+      <h1>เขียนให้</h1>
+      <p>อัปโหลดใบงาน iPad → AI ช่วยแก้ → เขียนด้วยลายมือของคุณเอง</p>
+    </div>
+    <div class="topbar__actions">
+      <button id="newDocBtn" class="btn btn--ghost" type="button">เริ่มงานใหม่</button>
+      <button id="openLastBtn" class="btn btn--ghost" type="button" hidden>เปิดงานล่าสุด</button>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist" aria-label="ส่วนต่างๆ ของแอป">
+  <button class="tab" role="tab" aria-selected="true" aria-controls="tab-worksheet" data-tab="worksheet" type="button">📄 ใบงาน</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-trainer" data-tab="trainer" type="button">✍️ ฝึกลายมือ</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="tab-settings" data-tab="settings" type="button">⚙️ ตั้งค่า/ส่งออก</button>
+</nav>
+
+<main class="app">
+
+  <!-- ============ TAB 1: ใบงาน ============ -->
+  <section id="tab-worksheet" class="tab-panel" role="tabpanel">
+
+    <div id="dropZone" class="drop-zone">
+      <p class="drop-zone__title">ลากไฟล์ใบงานมาวางที่นี่ หรือ</p>
+      <label class="btn btn--primary" for="fileInput">เลือกไฟล์ (รูปภาพ / PDF)</label>
+      <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp,application/pdf" hidden>
+      <p class="drop-zone__hint">รองรับ PNG, JPG, WebP, PDF — ไฟล์จาก Goodnotes, Notability หรือแอป Files</p>
+      <p id="importError" class="warn" hidden></p>
+    </div>
+
+    <div id="pdfThumbs" class="pdf-thumbs" hidden aria-label="เลือกหน้า PDF"></div>
+
+    <div id="workArea" class="workarea" hidden>
+      <div class="workarea__toolbar" role="toolbar" aria-label="เครื่องมือพื้นที่ทำงาน">
+        <button id="zoomOutBtn" class="icon-btn" type="button" aria-label="ซูมออก">−</button>
+        <button id="zoomResetBtn" class="icon-btn" type="button" aria-label="รีเซ็ตการซูม">100%</button>
+        <button id="zoomInBtn" class="icon-btn" type="button" aria-label="ซูมเข้า">+</button>
+        <span class="toolbar__sep" aria-hidden="true"></span>
+        <button id="cropBtn" class="icon-btn" type="button">ครอบตัด</button>
+        <button id="deleteSelBtn" class="icon-btn" type="button">ลบพื้นที่ที่เลือก</button>
+        <button id="clearSelBtn" class="icon-btn" type="button">ยกเลิกการเลือก</button>
+        <button id="resetViewBtn" class="icon-btn" type="button">รีเซ็ตมุมมอง</button>
+      </div>
+
+      <div id="viewport" class="canvas-viewport">
+        <canvas id="baseCanvas"></canvas>
+        <canvas id="layersCanvas"></canvas>
+        <canvas id="overlayCanvas"></canvas>
+      </div>
+      <p class="hint">ลากนิ้ว/Apple Pencil บนใบงานเพื่อเลือกกรอบโจทย์ • ลากมุมกรอบเพื่อปรับขนาด • ลากกลางกรอบเพื่อย้าย</p>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__heading">1) อ่านโจทย์จากที่เลือก (OCR)</h2>
+      <button id="ocrBtn" class="btn btn--primary" type="button" disabled>อ่านข้อความจากบริเวณที่เลือก</button>
+
+      <div id="ocrProgress" class="progress" hidden aria-live="polite">
+        <div class="progress__bar"><div id="ocrProgressFill" class="progress__fill"></div></div>
+        <p id="ocrProgressStatus" class="progress__status"></p>
+      </div>
+      <div id="ocrErrorBox" class="error-box" hidden role="alert">
+        <p id="ocrErrorText"></p>
+        <button id="ocrRetryBtn" class="btn btn--ghost-dark" type="button">ลองอีกครั้ง</button>
+      </div>
+
+      <label for="questionText">ข้อความโจทย์ (ตรวจและแก้ไขได้)</label>
+      <textarea id="questionText" rows="4" placeholder="พิมพ์โจทย์เอง หรือกด 'อ่านข้อความจากบริเวณที่เลือก' ด้านบน"></textarea>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__heading">2) ให้ AI ช่วยแก้โจทย์</h2>
+      <div class="field-row">
+        <label for="subjectSelect">วิชา</label>
+        <select id="subjectSelect">
+          <option>ทั่วไป</option><option>เคมี</option><option>ภาษาอังกฤษ</option>
+          <option>คณิตศาสตร์</option><option>ภาษาไทย</option><option>สังคมศึกษา</option>
+        </select>
+      </div>
+      <button id="generateBtn" class="btn btn--primary" type="button">
+        <span class="btn__label">ให้ AI ช่วยแก้โจทย์</span>
+        <span class="btn__spinner" hidden></span>
+      </button>
+      <p id="demoModeNotice" class="notice" hidden>โหมดทดลอง: ยังไม่ได้เชื่อมต่อ AI จริง (ดู README สำหรับการตั้งค่า)</p>
+
+      <ol id="stepsList" class="steps-list" hidden></ol>
+
+      <label for="answerText">วิธีทำ / คำตอบ (แก้ไขก่อนวางลงกระดาษ)</label>
+      <textarea id="answerText" rows="6" placeholder="คำตอบจาก AI หรือพิมพ์เอง"></textarea>
+
+      <p id="coverageNotice" class="notice" hidden></p>
+      <button id="addLayerBtn" class="btn btn--accent" type="button" disabled>วางคำตอบนี้ลงบนใบงาน</button>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__heading">3) เลเยอร์ลายมือบนหน้านี้</h2>
+      <div class="layers-toolbar" role="toolbar" aria-label="จัดการเลเยอร์">
+        <button id="undoBtn" class="icon-btn" type="button" disabled>↩ เลิกทำ</button>
+        <button id="redoBtn" class="icon-btn" type="button" disabled>↪ ทำซ้ำ</button>
+        <button id="duplicateLayerBtn" class="icon-btn" type="button" disabled>คัดลอกเลเยอร์</button>
+        <button id="deleteLayerBtn" class="icon-btn" type="button" disabled>ลบเลเยอร์</button>
+      </div>
+      <ul id="layersList" class="layers-list"></ul>
+      <p id="layersEmpty" class="hint">ยังไม่มีเลเยอร์ข้อความในหน้านี้ — เพิ่มจากขั้นตอนที่ 2 ด้านบน</p>
+    </div>
+
+  </section>
+
+  <!-- ============ TAB 2: ฝึกลายมือ ============ -->
+  <section id="tab-trainer" class="tab-panel" role="tabpanel" hidden>
+
+    <div class="panel">
+      <h2 class="panel__heading">โปรไฟล์ลายมือ</h2>
+      <div class="field-row">
+        <label for="profileSelect">โปรไฟล์ที่ใช้งาน</label>
+        <select id="profileSelect"></select>
+      </div>
+      <div class="btn-row">
+        <button id="newProfileBtn" class="btn btn--ghost-dark" type="button">สร้างโปรไฟล์ใหม่</button>
+        <button id="exportProfileBtn" class="btn btn--ghost-dark" type="button">ส่งออกเป็น JSON</button>
+        <label class="btn btn--ghost-dark" for="importProfileInput">นำเข้า JSON</label>
+        <input type="file" id="importProfileInput" accept="application/json" hidden>
+      </div>
+      <p id="profileImportError" class="warn" hidden></p>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__heading">ความพร้อมใช้งาน</h2>
+      <p class="hint">ฝึก "ชุดจำเป็น" ให้ครบ ก็เพียงพอสำหรับข้อความภาษาไทยส่วนใหญ่แล้ว ไม่ต้องฝึกครบทุกตัวอักษร</p>
+      <div class="core-readiness">
+        <div class="progress__bar progress__bar--lg"><div id="coreProgressFill" class="progress__fill"></div></div>
+        <p id="coreProgressLabel" class="core-readiness__label">0 / 37 ตัว (0%)</p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__heading">ความคืบหน้าการฝึก</h2>
+      <div id="progressBars" class="progress-grid"></div>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__heading">ฝึกเขียน</h2>
+      <div class="field-row">
+        <label for="trainingSetSelect">ชุดฝึก</label>
+        <select id="trainingSetSelect">
+          <option value="core" selected>⭐ ชุดจำเป็น (37 ตัว)</option>
+          <option value="thai">พยัญชนะ-สระ-วรรณยุกต์ไทย (ชุดเต็ม)</option>
+          <option value="english">ภาษาอังกฤษ A–Z</option>
+          <option value="number">ตัวเลข</option>
+          <option value="math">คณิตศาสตร์ / เคมี / เลขยกกำลัง / เศษส่วน</option>
+        </select>
+      </div>
+      <div id="charGrid" class="char-grid"></div>
+
+      <div class="trainer-stage">
+        <p id="currentCharLabel" class="trainer-stage__char">เลือกตัวอักษรด้านบนเพื่อเริ่มฝึก</p>
+        <canvas id="trainerCanvas" width="320" height="320"></canvas>
+        <p id="variantCountLabel" class="hint">0 / 5 ตัวอย่าง</p>
+        <div class="btn-row">
+          <button id="clearStrokeBtn" class="icon-btn" type="button">ล้างที่เขียน</button>
+          <button id="saveVariantBtn" class="btn btn--primary" type="button" disabled>บันทึกตัวอย่างนี้</button>
+        </div>
+        <ul id="variantList" class="variant-list"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TAB 3: ตั้งค่า/ส่งออก ============ -->
+  <section id="tab-settings" class="tab-panel" role="tabpanel" hidden>
+
+    <div class="panel">
+      <h2 class="panel__heading">ฟอนต์ลายมือสำรอง (fallback)</h2>
+      <p class="hint">ใช้แสดงตัวอักษรที่ยังไม่ได้ฝึกด้วย Apple Pencil ค่าเริ่มต้นคือฟอนต์ Mali — อัปโหลดฟอนต์ลายมือของคุณเอง (.ttf / .woff2) เพื่อใช้แทนได้</p>
+      <label class="btn btn--ghost-dark" for="fontUploadInput">อัปโหลดฟอนต์ (.ttf / .woff2)</label>
+      <input type="file" id="fontUploadInput" accept=".ttf,.woff2,.otf,.woff" hidden>
+      <p id="fontUploadStatus" class="hint"></p>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__heading">ลักษณะลายมือ (ของโปรไฟล์ปัจจุบัน)</h2>
+      <div class="field-row"><label for="slantRange">ความเอียง <span id="slantVal">0</span>°</label><input type="range" id="slantRange" min="-25" max="25" value="0"></div>
+      <div class="field-row"><label for="charSpacingRange">ระยะห่างตัวอักษร <span id="charSpacingVal">0</span>px</label><input type="range" id="charSpacingRange" min="-4" max="12" value="0"></div>
+      <div class="field-row"><label for="wordSpacingRange">ระยะห่างคำ <span id="wordSpacingVal">0</span>px</label><input type="range" id="wordSpacingRange" min="-4" max="20" value="0"></div>
+      <div class="field-row"><label for="jitterRange">Baseline jitter <span id="jitterVal">2</span>px</label><input type="range" id="jitterRange" min="0" max="8" value="2"></div>
+      <div class="field-row"><label for="thicknessRange">ความหนาเส้น <span id="thicknessVal">2.5</span></label><input type="range" id="thicknessRange" min="0.5" max="6" step="0.5" value="2.5"></div>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__heading">เลเยอร์ที่เลือก</h2>
+      <p id="noLayerSelectedHint" class="hint">แตะเลเยอร์ในแท็บ "ใบงาน" เพื่อแก้ไขที่นี่</p>
+      <div id="layerEditFields" hidden>
+        <div class="field-row"><label for="layerX">ตำแหน่งแนวนอน (X) <span id="layerXVal"></span>px</label><input type="range" id="layerX" min="0" max="1000" value="100"></div>
+        <div class="field-row"><label for="layerY">ตำแหน่งแนวตั้ง (Y) <span id="layerYVal"></span>px</label><input type="range" id="layerY" min="0" max="1400" value="100"></div>
+        <div class="field-row"><label for="layerWidth">ความกว้างกรอบข้อความ <span id="layerWidthVal"></span>px</label><input type="range" id="layerWidth" min="100" max="1000" value="400"></div>
+        <div class="field-row"><label for="layerFontSize">ขนาดตัวอักษร <span id="layerFontSizeVal"></span>px</label><input type="range" id="layerFontSize" min="16" max="64" value="32"></div>
+        <div class="field-row"><label for="layerLineHeight">ระยะบรรทัด <span id="layerLineHeightVal"></span>px</label><input type="range" id="layerLineHeight" min="24" max="96" value="48"></div>
+        <div class="field-row"><label for="layerInkColor">สีหมึก</label><input type="color" id="layerInkColor" value="#1f3a5f"></div>
+        <div class="field-row"><label for="layerRotation">หมุน <span id="layerRotationVal"></span>°</label><input type="range" id="layerRotation" min="-30" max="30" value="0"></div>
+        <div class="field-row"><label for="layerScale">ขนาด (scale) <span id="layerScaleVal"></span></label><input type="range" id="layerScale" min="0.5" max="2" step="0.05" value="1"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__heading">สร้างภาพประกอบด้วย AI (GPT Image 2)</h2>
+      <p class="hint">สร้างภาพแยกต่างหาก (เช่น ไดอะแกรมประกอบคำตอบ) ดาวน์โหลดเก็บไว้ใช้เองได้ — ยังไม่ได้ผูกเป็นเลเยอร์บนใบงานโดยอัตโนมัติ</p>
+      <label for="imagePrompt">อธิบายภาพที่ต้องการ</label>
+      <textarea id="imagePrompt" rows="2" placeholder="เช่น แผนภาพวงจรไฟฟ้าอย่างง่าย มีแบตเตอรี่ หลอดไฟ และสวิตช์"></textarea>
+      <button id="generateImageBtn" class="btn btn--primary" type="button">
+        <span class="btn__label">สร้างภาพ</span>
+        <span class="btn__spinner" hidden></span>
+      </button>
+      <p id="imageDemoModeNotice" class="notice" hidden></p>
+      <div id="imageResultBox" hidden>
+        <img id="imageResultPreview" alt="ภาพที่ AI สร้าง" style="max-width:100%; border-radius:10px; margin-top:12px;">
+        <div class="btn-row">
+          <button id="downloadImageBtn" class="btn btn--accent" type="button">ดาวน์โหลดภาพนี้</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2 class="panel__heading">ส่งออกไฟล์</h2>
+      <div class="field-row">
+        <label for="resolutionSelect">ความละเอียด</label>
+        <select id="resolutionSelect">
+          <option value="1">1x (มาตรฐาน)</option>
+          <option value="2" selected>2x (คมชัด แนะนำ)</option>
+          <option value="3">3x (สูงสุด)</option>
+        </select>
+      </div>
+      <div class="btn-row">
+        <button id="exportPagePngBtn" class="btn btn--accent" type="button">ดาวน์โหลดหน้านี้ (PNG)</button>
+        <button id="exportZipBtn" class="btn btn--accent" type="button">ดาวน์โหลดทุกหน้า (ZIP)</button>
+        <button id="exportPdfBtn" class="btn btn--accent" type="button">ดาวน์โหลดทุกหน้า (PDF)</button>
+      </div>
+      <div id="exportProgress" class="progress" hidden>
+        <div class="progress__bar"><div id="exportProgressFill" class="progress__fill"></div></div>
+        <p id="exportProgressStatus" class="progress__status"></p>
+      </div>
+      <p id="untrainedNotice" class="notice" hidden></p>
+    </div>
+
+  </section>
+
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<div id="confirmDialog" class="dialog-backdrop" hidden>
+  <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dialogTitle">
+    <p id="dialogTitle"></p>
+    <div class="btn-row">
+      <button id="dialogCancelBtn" class="btn btn--ghost-dark" type="button">ยกเลิก</button>
+      <button id="dialogConfirmBtn" class="btn btn--accent" type="button">ยืนยัน</button>
+    </div>
+  </div>
+</div>
+
+<footer class="footer">
+  <p>HTML / CSS / Vanilla JS ล้วน — พร้อม deploy บน Vercel หรือ Netlify</p>
+</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
