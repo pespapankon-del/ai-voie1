@@ -75,16 +75,28 @@ export class LayerHistory {
 
 /* ============================ Hit-testing / geometry ============================ */
 
+/**
+ * ประมาณกรอบสี่เหลี่ยม (ก่อน rotation) ของ layer — ใช้ร่วมกันในทั้ง hit-testing และวาด outline
+ * @returns {{x,y,width,height}} พิกัด canvas จริง ที่มุมบนซ้ายของกรอบ
+ */
+export function estimateLayerBounds(layer) {
+  const w = layer.width * layer.scale;
+  const charsPerLine = Math.max(6, Math.floor(layer.width / (layer.fontSize * 0.65)));
+  const lines = Math.max(1, Math.ceil((layer.text || "").length / charsPerLine));
+  const h = layer.lineHeight * layer.scale * (lines + 0.5);
+  return { x: layer.x, y: layer.y, width: w, height: h };
+}
+
 /** คืนค่า true ถ้าจุด (px,py) ในพิกัด canvas จริง อยู่ในกรอบของ layer (คิดรวม rotation ด้วย) */
 export function isPointInLayer(layer, px, py) {
-  const cx = layer.x + (layer.width * layer.scale) / 2;
-  const h = layer.lineHeight * layer.scale * 3; // ประมาณความสูงกรอบคร่าวๆ จากจำนวนบรรทัด (ปรับตอน render จริง)
-  const cy = layer.y + h / 2;
+  const { x, y, width, height } = estimateLayerBounds(layer);
+  const cx = x + width / 2;
+  const cy = y + height / 2;
   const dx = px - cx;
   const dy = py - cy;
   const cos = Math.cos(-layer.rotation);
   const sin = Math.sin(-layer.rotation);
   const localX = dx * cos - dy * sin;
   const localY = dx * sin + dy * cos;
-  return Math.abs(localX) <= (layer.width * layer.scale) / 2 && Math.abs(localY) <= h / 2;
+  return Math.abs(localX) <= width / 2 && Math.abs(localY) <= height / 2;
 }

@@ -94,6 +94,7 @@ body{
   font-family: var(--font-body); font-size:.85rem; padding:0 12px; cursor:pointer;
 }
 .icon-btn:disabled{ opacity:.45; }
+.icon-btn.active{ background: var(--cover-green); color:#fff; border-color: var(--cover-green-dark); }
 .toolbar__sep{ width:1px; align-self:stretch; background:#E1DCC9; margin:0 4px; }
 
 label{ display:block; font-family: var(--font-display); font-weight:500; font-size:.82rem; color: var(--ink-soft); margin-bottom:6px; }

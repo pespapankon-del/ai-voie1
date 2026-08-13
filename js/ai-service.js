@@ -50,6 +50,49 @@ export async function generateSolution({ question, subject, language = "th", det
   }
 }
 
+/**
+ * วิเคราะห์ใบงานทั้งหน้า → AI หาทุกช่องคำตอบ → คืน array ของ cells พร้อมตำแหน่งและคำตอบ
+ * @param {string} imageDataUrl data:image/jpeg;base64,...  (ควรย่อให้สูงสุด ~1200px ก่อนส่ง)
+ * @param {string} subject วิชา
+ * @returns {Promise<{cells: Array<{question,answer,xFrac,yFrac,wFrac,hFrac}>, isDemo: boolean}>}
+ */
+export async function autofillWorksheet(imageDataUrl, subject = "ทั่วไป") {
+  // แยก base64 payload จาก data URL
+  const commaIdx = imageDataUrl.indexOf(",");
+  const meta = commaIdx > -1 ? imageDataUrl.slice(0, commaIdx) : "";
+  const imageBase64 = commaIdx > -1 ? imageDataUrl.slice(commaIdx + 1) : imageDataUrl;
+  const mediaType = meta.includes("jpeg") ? "image/jpeg" : meta.includes("png") ? "image/png" : "image/jpeg";
+
+  try {
+    const res = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "autofill", imageBase64, mediaType, subject }),
+    });
+    if (res.status === 404 || res.status === 501) return demoAutofill();
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `เซิร์ฟเวอร์ตอบกลับผิดพลาด (${res.status})`);
+    }
+    const data = await res.json();
+    return { cells: Array.isArray(data.cells) ? data.cells : [], isDemo: false };
+  } catch (err) {
+    if (err instanceof TypeError) return demoAutofill();
+    throw err;
+  }
+}
+
+function demoAutofill() {
+  return {
+    isDemo: true,
+    cells: [
+      { question: "ข้อ 1", answer: "[โหมดทดลอง] คำตอบข้อ 1", xFrac: 0.05, yFrac: 0.20, wFrac: 0.88, hFrac: 0.08 },
+      { question: "ข้อ 2", answer: "[โหมดทดลอง] คำตอบข้อ 2", xFrac: 0.05, yFrac: 0.40, wFrac: 0.88, hFrac: 0.08 },
+      { question: "ข้อ 3", answer: "[โหมดทดลอง] คำตอบข้อ 3", xFrac: 0.05, yFrac: 0.60, wFrac: 0.88, hFrac: 0.08 },
+    ],
+  };
+}
+
 function demoModeAnswer(question, subject) {
   const steps = [
     `อ่านโจทย์ให้เข้าใจก่อนว่าโจทย์วิชา${subject || "ทั่วไป"}ข้อนี้ถามอะไร`,

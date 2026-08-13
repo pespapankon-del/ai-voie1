@@ -10,9 +10,9 @@ import { renderLayer, computeTrainingProgress, computeCoreProgress, computeTextC
 import { HandwritingTrainer, createEmptyProfile, TRAINING_SETS } from "./js/handwriting-trainer.js";
 import { loadPdfFile, generateThumbnails, renderPdfPageToCanvas, getPdfPageCount } from "./js/pdf-manager.js";
 import { extractQuestionFromSelection, OCR_PROVIDERS } from "./js/ocr-service.js";
-import { generateSolution } from "./js/ai-service.js";
+import { generateSolution, autofillWorksheet } from "./js/ai-service.js";
 import { generateImage } from "./js/image-service.js";
-import { createLayer, duplicateLayer, LayerHistory } from "./js/layers.js";
+import { createLayer, duplicateLayer, LayerHistory, isPointInLayer } from "./js/layers.js";
 import * as storage from "./js/storage.js";
 import { renderPageToExportCanvas, downloadCanvasAsPNG, exportAllPagesAsZip, exportAllPagesAsPDF } from "./js/exporter.js";
 
@@ -31,6 +31,7 @@ const els = {
   workArea: $("workArea"), viewport: $("viewport"),
   baseCanvas: $("baseCanvas"), layersCanvas: $("layersCanvas"), overlayCanvas: $("overlayCanvas"),
   zoomOutBtn: $("zoomOutBtn"), zoomInBtn: $("zoomInBtn"), zoomResetBtn: $("zoomResetBtn"),
+  autofillBtn: $("autofillBtn"), moveLayerBtn: $("moveLayerBtn"),
   cropBtn: $("cropBtn"), deleteSelBtn: $("deleteSelBtn"), clearSelBtn: $("clearSelBtn"), resetViewBtn: $("resetViewBtn"),
 
   ocrBtn: $("ocrBtn"), ocrProgress: $("ocrProgress"), ocrProgressFill: $("ocrProgressFill"),
@@ -91,11 +92,41 @@ const state = {
   selectedLayerId: null,
   pdfDoc: null,
   fallbackFontFamily: FALLBACK_FONT_FAMILY,
+  moveLayerMode: false,
 };
+
+let _layerDrag = null; // {layerId, startPt, startX, startY}
 
 const history = new LayerHistory();
 const editor = new WorkAreaEditor(els.baseCanvas, els.overlayCanvas, els.viewport, els.layersCanvas);
 editor.onSelectionChange = (sel) => { els.ocrBtn.disabled = !sel; };
+
+editor.onLayerPointer = ({ type, pt }) => {
+  const layers = currentLayers();
+  if (type === "down") {
+    const hit = [...layers].reverse().find((l) => isPointInLayer(l, pt.x, pt.y));
+    if (hit) {
+      if (hit.id !== state.selectedLayerId) {
+        history.push(layers); // บันทึกก่อน drag เริ่ม
+        selectLayer(hit.id);
+      }
+      _layerDrag = { layerId: hit.id, startPt: pt, startX: hit.x, startY: hit.y };
+    } else {
+      _layerDrag = null;
+    }
+  } else if (type === "move" && _layerDrag) {
+    const layer = currentLayers().find((l) => l.id === _layerDrag.layerId);
+    if (layer) {
+      layer.x = Math.max(0, _layerDrag.startX + (pt.x - _layerDrag.startPt.x));
+      layer.y = Math.max(0, _layerDrag.startY + (pt.y - _layerDrag.startPt.y));
+      renderLayersCanvas();
+      syncLayerEditFields();
+    }
+  } else if (type === "up" && _layerDrag) {
+    debounceAutosave();
+    _layerDrag = null;
+  }
+};
 
 /* ============================ Utilities ============================ */
 function toast(message, isError = false) {
@@ -293,6 +324,73 @@ els.zoomOutBtn.addEventListener("click", () => editor.zoomBy(1 / 1.2));
 els.zoomResetBtn.addEventListener("click", () => editor.resetView());
 els.resetViewBtn.addEventListener("click", () => editor.reset());
 
+/* ──── Feature 2: ย้ายเลเยอร์โดยตรงบน canvas ──── */
+els.moveLayerBtn.addEventListener("click", () => {
+  state.moveLayerMode = !state.moveLayerMode;
+  editor.setMoveLayerMode(state.moveLayerMode);
+  els.moveLayerBtn.classList.toggle("active", state.moveLayerMode);
+  if (state.moveLayerMode) {
+    editor.drawLayerOutlines(currentLayers(), state.selectedLayerId);
+  }
+});
+
+/* ──── Feature 1: เติมทั้งตาราง (Auto) ──── */
+els.autofillBtn.addEventListener("click", async () => {
+  if (!currentPage()) { toast("กรุณานำเข้าใบงานก่อน", true); return; }
+  setBtnLoading(els.autofillBtn, true, "กำลังวิเคราะห์...");
+  try {
+    const imageDataUrl = shrinkCanvasForApi(els.baseCanvas, 1200);
+    const subject = els.subjectSelect.value;
+    const result = await autofillWorksheet(imageDataUrl, subject);
+    if (result.isDemo) toast("โหมดทดลอง: ยังไม่ได้เชื่อมต่อ AI จริง (ดู README)", false);
+
+    const page = currentPage();
+    history.push(currentLayers());
+    result.cells.forEach((cell) => {
+      const x = Math.round(cell.xFrac * page.width);
+      const y = Math.round(cell.yFrac * page.height);
+      const w = Math.round(cell.wFrac * page.width);
+      const layer = createLayer({
+        text: cell.answer,
+        x, y,
+        width: Math.max(200, w),
+        handwritingProfileId: state.profile?.id || null,
+        inkColor: "#1f3a5f",
+      });
+      page.layers.push(layer);
+    });
+
+    refreshLayersUI();
+    renderLayersCanvas();
+    autosaveDocument();
+
+    // สลับไปโหมดย้ายเลเยอร์อัตโนมัติ เพื่อให้ปรับตำแหน่งได้ทันที
+    if (!state.moveLayerMode) {
+      state.moveLayerMode = true;
+      editor.setMoveLayerMode(true);
+      els.moveLayerBtn.classList.add("active");
+    }
+    editor.drawLayerOutlines(currentLayers(), state.selectedLayerId);
+    toast(`เพิ่ม ${result.cells.length} เลเยอร์แล้ว — ลากปรับตำแหน่งได้เลย`);
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    setBtnLoading(els.autofillBtn, false, "✨ เติมทั้งตาราง");
+  }
+});
+
+/** ย่อ canvas เป็น JPEG base64 data URL สำหรับส่ง API (ประหยัด payload) */
+function shrinkCanvasForApi(canvas, maxPx) {
+  const { width, height } = canvas;
+  if (width <= maxPx && height <= maxPx) return canvas.toDataURL("image/jpeg", 0.85);
+  const scale = Math.min(maxPx / width, maxPx / height);
+  const tmp = document.createElement("canvas");
+  tmp.width = Math.round(width * scale);
+  tmp.height = Math.round(height * scale);
+  tmp.getContext("2d").drawImage(canvas, 0, 0, tmp.width, tmp.height);
+  return tmp.toDataURL("image/jpeg", 0.85);
+}
+
 els.cropBtn.addEventListener("click", () => {
   try {
     editor.crop(currentLayers());
@@ -399,8 +497,11 @@ els.answerText.addEventListener("input", debounce(updateCoverageNotice, 300));
 
 function setBtnLoading(btn, loading, label) {
   btn.disabled = loading;
-  btn.querySelector(".btn__spinner").hidden = !loading;
-  btn.querySelector(".btn__label").textContent = label;
+  const spinner = btn.querySelector(".btn__spinner");
+  const labelEl = btn.querySelector(".btn__label");
+  if (spinner) spinner.hidden = !loading;
+  if (labelEl) labelEl.textContent = label;
+  else btn.textContent = label;
 }
 
 /* ============================ Layers ============================ */
@@ -494,6 +595,9 @@ function renderLayersCanvas() {
     els.untrainedNotice.textContent = `ตัวอักษรที่ยังไม่ได้ฝึก จะแสดงด้วยฟอนต์ตัวอย่างแทน: ${[...untrained].slice(0, 20).join(" ")}`;
   } else {
     els.untrainedNotice.hidden = true;
+  }
+  if (state.moveLayerMode) {
+    editor.drawLayerOutlines(currentLayers(), state.selectedLayerId);
   }
 }
 
@@ -773,15 +877,35 @@ els.exportPagePngBtn.addEventListener("click", async () => {
 });
 
 els.exportZipBtn.addEventListener("click", async () => {
-  await runExportWithProgress(() =>
-    exportAllPagesAsZip(state.doc, state.profile, Number(els.resolutionSelect.value), state.fallbackFontFamily, updateExportProgress)
-  );
+  await runExportWithProgress(async () => {
+    await ensureAllPagesRendered(updateExportProgress);
+    await exportAllPagesAsZip(state.doc, state.profile, Number(els.resolutionSelect.value), state.fallbackFontFamily, updateExportProgress);
+  });
 });
 els.exportPdfBtn.addEventListener("click", async () => {
-  await runExportWithProgress(() =>
-    exportAllPagesAsPDF(state.doc, state.profile, Number(els.resolutionSelect.value), state.fallbackFontFamily, updateExportProgress)
-  );
+  await runExportWithProgress(async () => {
+    await ensureAllPagesRendered(updateExportProgress);
+    await exportAllPagesAsPDF(state.doc, state.profile, Number(els.resolutionSelect.value), state.fallbackFontFamily, updateExportProgress);
+  });
 });
+
+/** Feature 3: render หน้า PDF ที่ยังไม่เคยเปิด (null) ก่อน export เพื่อไม่ให้ crash */
+async function ensureAllPagesRendered(onProgress) {
+  if (!state.pdfDoc || !state.doc) return;
+  const nullPages = state.doc.pages.reduce((acc, p, i) => { if (!p) acc.push(i); return acc; }, []);
+  if (nullPages.length === 0) return;
+
+  const tmp = document.createElement("canvas");
+  for (const i of nullPages) {
+    onProgress?.({ current: i + 1, total: state.doc.pages.length, status: `กำลังเตรียมหน้า ${i + 1}/${state.doc.pages.length}...` });
+    const { width, height } = await renderPdfPageToCanvas(state.pdfDoc, i + 1, tmp, 1);
+    state.doc.pages[i] = {
+      id: `page_${i + 1}`,
+      imageDataUrl: tmp.toDataURL("image/png"),
+      width, height, layers: [],
+    };
+  }
+}
 
 async function runExportWithProgress(task) {
   if (!state.doc?.pages?.length) { toast("ยังไม่มีเอกสารให้ส่งออก", true); return; }

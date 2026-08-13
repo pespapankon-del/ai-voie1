@@ -37,6 +37,8 @@ export class WorkAreaEditor {
     this.dragMode = null;  // 'create' | 'move' | 'resize-<handle>' | 'pan'
     this.dragStart = null;
 
+    this._moveMode = false;
+    this.onLayerPointer = null; // function({type:'down'|'move'|'up', pt:{x,y}})
     this.onSelectionChange = () => {};
 
     this._bindEvents();
@@ -122,8 +124,14 @@ export class WorkAreaEditor {
   _onDown(e) {
     this.overlayCanvas.setPointerCapture(e.pointerId);
     const pt = this.clientToCanvas(e.clientX, e.clientY);
-    const handle = this._handleAtPoint(pt);
 
+    if (this._moveMode) {
+      this.onLayerPointer?.({ type: "down", pt });
+      this._lastMovePt = pt;
+      return;
+    }
+
+    const handle = this._handleAtPoint(pt);
     if (handle) {
       this.dragMode = `resize-${handle}`;
     } else if (this._isInsideSelection(pt)) {
@@ -137,8 +145,14 @@ export class WorkAreaEditor {
   }
 
   _onMove(e) {
-    if (!this.dragMode) return;
     const pt = this.clientToCanvas(e.clientX, e.clientY);
+
+    if (this._moveMode) {
+      if (this._lastMovePt) this.onLayerPointer?.({ type: "move", pt });
+      return;
+    }
+
+    if (!this.dragMode) return;
     const start = this._selectionAtDragStart;
 
     if (this.dragMode === "create") {
@@ -157,7 +171,15 @@ export class WorkAreaEditor {
     this._redrawOverlay();
   }
 
-  _onUp() {
+  _onUp(e) {
+    const pt = this.clientToCanvas(e?.clientX ?? 0, e?.clientY ?? 0);
+
+    if (this._moveMode) {
+      if (this._lastMovePt) this.onLayerPointer?.({ type: "up", pt });
+      this._lastMovePt = null;
+      return;
+    }
+
     this.dragMode = null;
     this.dragStart = null;
     if (this.selection && (this.selection.width < 4 || this.selection.height < 4)) {
@@ -238,8 +260,51 @@ export class WorkAreaEditor {
     this.onSelectionChange(null);
   }
 
+  /* ---------- Move-layer mode ---------- */
+
+  setMoveLayerMode(enabled) {
+    this._moveMode = !!enabled;
+    this._lastMovePt = null;
+    this.overlayCanvas.style.cursor = enabled ? "grab" : "";
+    if (!enabled) this._redrawOverlay();
+  }
+
+  /** วาดเส้นประรอบ layer ทุกตัวบน overlayCanvas (เฉพาะโหมดย้ายเลเยอร์) */
+  drawLayerOutlines(layers, selectedId) {
+    const ctx = this.overlayCtx;
+    ctx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
+
+    layers.forEach((layer) => {
+      const isSelected = layer.id === selectedId;
+      const w = layer.width * layer.scale;
+      // ประมาณจำนวนบรรทัด (ตรงกับ estimateLayerBounds ใน layers.js)
+      const charsPerLine = Math.max(6, Math.floor(layer.width / (layer.fontSize * 0.65)));
+      const lines = Math.max(1, Math.ceil((layer.text || "").length / charsPerLine));
+      const h = layer.lineHeight * layer.scale * (lines + 0.5);
+      const cx = layer.x + w / 2;
+      const cy = layer.y + h / 2;
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(layer.rotation);
+
+      ctx.strokeStyle = isSelected ? "#2e7d32" : "rgba(46,125,50,0.5)";
+      ctx.lineWidth = isSelected ? 3 : 1.5;
+      ctx.setLineDash([8, 5]);
+      ctx.strokeRect(-w / 2, -h / 2, w, h);
+      ctx.setLineDash([]);
+
+      if (isSelected) {
+        ctx.fillStyle = "rgba(46,125,50,0.08)";
+        ctx.fillRect(-w / 2, -h / 2, w, h);
+      }
+      ctx.restore();
+    });
+  }
+
   /* ---------- Drawing overlay ---------- */
   _redrawOverlay() {
+    if (this._moveMode) return; // drawLayerOutlines รับผิดชอบใน move mode แทน
     const ctx = this.overlayCtx;
     ctx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
     if (!this.selection) return;
