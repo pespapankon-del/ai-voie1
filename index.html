@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Writing Assistant</title>
+  <style>
+    :root {
+      --bg: #0f0f11;
+      --surface: #1a1a1f;
+      --surface2: #242430;
+      --border: #2e2e3a;
+      --primary: #7c6af7;
+      --primary-hover: #9080ff;
+      --text: #e8e8f0;
+      --text-muted: #7a7a90;
+      --success: #4ade80;
+      --error: #f87171;
+      --radius: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--primary);
+    }
+
+    .logo svg {
+      width: 28px;
+      height: 28px;
+    }
+
+    .api-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .api-row input {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 7px 12px;
+      font-size: 13px;
+      width: 240px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .api-row input:focus {
+      border-color: var(--primary);
+    }
+
+    .api-row input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .badge {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 20px;
+      background: var(--surface2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 260px 1fr 1fr;
+      gap: 0;
+      overflow: hidden;
+    }
+
+    /* Sidebar */
+    aside {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow-y: auto;
+    }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin: 12px 0 6px;
+    }
+
+    .section-label:first-child {
+      margin-top: 0;
+    }
+
+    .mode-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 13px;
+      text-align: left;
+      transition: background 0.15s, color 0.15s;
+      width: 100%;
+    }
+
+    .mode-btn:hover {
+      background: var(--surface2);
+      color: var(--text);
+    }
+
+    .mode-btn.active {
+      background: rgba(124, 106, 247, 0.15);
+      color: var(--primary);
+    }
+
+    .mode-btn .icon {
+      font-size: 16px;
+      width: 20px;
+      text-align: center;
+    }
+
+    .tone-select, .lang-select {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 13px;
+      width: 100%;
+      outline: none;
+      cursor: pointer;
+    }
+
+    /* Editor panel */
+    .editor-panel {
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+    }
+
+    .panel-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .panel-header strong {
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .word-count {
+      font-size: 12px;
+    }
+
+    textarea {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.7;
+      padding: 20px;
+      resize: none;
+      font-family: inherit;
+    }
+
+    textarea::placeholder {
+      color: var(--text-muted);
+    }
+
+    .toolbar {
+      padding: 12px 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .toolbar-left {
+      display: flex;
+      gap: 6px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: background 0.15s, opacity 0.15s;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn-ghost {
+      background: var(--surface2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    .btn-ghost:hover {
+      color: var(--text);
+      background: var(--border);
+    }
+
+    .btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    /* Output panel */
+    .output-panel {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .output-body {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+    }
+
+    .placeholder-msg {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-muted);
+      text-align: center;
+      gap: 12px;
+    }
+
+    .placeholder-msg .big-icon {
+      font-size: 48px;
+      opacity: 0.3;
+    }
+
+    .output-text {
+      font-size: 15px;
+      line-height: 1.75;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .output-toolbar {
+      padding: 12px 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+    }
+
+    /* Loading spinner */
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      opacity: 0;
+      transition: all 0.3s;
+      z-index: 999;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .streaming-cursor {
+      display: inline-block;
+      width: 2px;
+      height: 1em;
+      background: var(--primary);
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      animation: blink 0.8s step-end infinite;
+    }
+
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+
+    @media (max-width: 900px) {
+      main {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr 1fr;
+      }
+
+      aside {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        flex-direction: row;
+        flex-wrap: wrap;
+        padding: 12px 16px;
+        gap: 6px;
+      }
+
+      .section-label {
+        display: none;
+      }
+
+      .editor-panel {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="28" height="28" rx="8" fill="#7c6af7" opacity="0.2"/>
+      <path d="M7 14h4l3-7 3 14 3-7h4" stroke="#7c6af7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    AI Writing Assistant
+  </div>
+  <div class="api-row">
+    <input type="password" id="apiKey" placeholder="Gemini API Key" />
+    <span class="badge">Gemini</span>
+  </div>
+</header>
+
+<main>
+  <!-- Sidebar -->
+  <aside>
+    <div class="section-label">โหมด</div>
+
+    <button class="mode-btn active" data-mode="improve">
+      <span class="icon">✨</span> ปรับปรุงข้อความ
+    </button>
+    <button class="mode-btn" data-mode="expand">
+      <span class="icon">📝</span> ขยายความ
+    </button>
+    <button class="mode-btn" data-mode="shorten">
+      <span class="icon">✂️</span> สรุปย่อ
+    </button>
+    <button class="mode-btn" data-mode="translate">
+      <span class="icon">🌐</span> แปลภาษา
+    </button>
+    <button class="mode-btn" data-mode="proofread">
+      <span class="icon">🔍</span> ตรวจสอบไวยากรณ์
+    </button>
+    <button class="mode-btn" data-mode="rewrite">
+      <span class="icon">🔄</span> เขียนใหม่
+    </button>
+    <button class="mode-btn" data-mode="continue">
+      <span class="icon">➡️</span> เขียนต่อเนื่อง
+    </button>
+    <button class="mode-btn" data-mode="title">
+      <span class="icon">🏷️</span> สร้างหัวข้อ
+    </button>
+
+    <div class="section-label">น้ำเสียง</div>
+    <select class="tone-select" id="tone">
+      <option value="neutral">เป็นกลาง</option>
+      <option value="formal">เป็นทางการ</option>
+      <option value="casual">ไม่เป็นทางการ</option>
+      <option value="professional">มืออาชีพ</option>
+      <option value="friendly">เป็นมิตร</option>
+      <option value="persuasive">โน้มน้าว</option>
+    </select>
+
+    <div class="section-label">ภาษาเป้าหมาย</div>
+    <select class="lang-select" id="targetLang">
+      <option value="thai">ภาษาไทย</option>
+      <option value="english">ภาษาอังกฤษ</option>
+      <option value="japanese">ภาษาญี่ปุ่น</option>
+      <option value="chinese">ภาษาจีน</option>
+      <option value="korean">ภาษาเกาหลี</option>
+      <option value="french">ภาษาฝรั่งเศส</option>
+    </select>
+  </aside>
+
+  <!-- Editor -->
+  <div class="editor-panel">
+    <div class="panel-header">
+      <strong>ข้อความต้นฉบับ</strong>
+      <span class="word-count" id="wordCount">0 คำ</span>
+    </div>
+    <textarea
+      id="inputText"
+      placeholder="พิมพ์หรือวางข้อความที่ต้องการให้ AI ช่วยเขียน แก้ไข หรือปรับปรุง..."
+    ></textarea>
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <button class="btn btn-ghost" id="clearBtn">ล้าง</button>
+      </div>
+      <button class="btn btn-primary" id="generateBtn">
+        <span id="btnText">✨ สร้างข้อความ</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Output -->
+  <div class="output-panel">
+    <div class="panel-header">
+      <strong>ผลลัพธ์จาก AI</strong>
+      <span id="outputStatus"></span>
+    </div>
+    <div class="output-body" id="outputBody">
+      <div class="placeholder-msg">
+        <div class="big-icon">✍️</div>
+        <div>ผลลัพธ์จะแสดงที่นี่<br/>เลือกโหมดและกด "สร้างข้อความ"</div>
+      </div>
+    </div>
+    <div class="output-toolbar">
+      <button class="btn btn-ghost" id="copyBtn" disabled>คัดลอก</button>
+      <button class="btn btn-ghost" id="useBtn" disabled>ใช้เป็นต้นฉบับ</button>
+    </div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const PROMPTS = {
+    improve: (text, tone) => `ปรับปรุงข้อความต่อไปนี้ให้ดีขึ้น สละสลวย และมีน้ำเสียง${tone} โดยคงความหมายเดิมไว้:\n\n${text}\n\nตอบเฉพาะข้อความที่ปรับปรุงแล้ว ไม่ต้องมีคำอธิบายเพิ่มเติม`,
+    expand: (text, tone) => `ขยายความข้อความต่อไปนี้ให้ละเอียดและสมบูรณ์มากขึ้น ด้วยน้ำเสียง${tone}:\n\n${text}\n\nตอบเฉพาะข้อความที่ขยายความแล้ว`,
+    shorten: (text, tone) => `สรุปย่อข้อความต่อไปนี้ให้กระชับ ได้ใจความ ด้วยน้ำเสียง${tone}:\n\n${text}\n\nตอบเฉพาะข้อความที่สรุปแล้ว`,
+    translate: (text, _, lang) => `แปลข้อความต่อไปนี้เป็น${lang}:\n\n${text}\n\nตอบเฉพาะข้อความที่แปลแล้ว`,
+    proofread: (text) => `ตรวจสอบและแก้ไขไวยากรณ์ การสะกด และเครื่องหมายวรรคตอนของข้อความต่อไปนี้:\n\n${text}\n\nตอบเฉพาะข้อความที่แก้ไขแล้ว`,
+    rewrite: (text, tone) => `เขียนข้อความต่อไปนี้ใหม่ทั้งหมดโดยใช้น้ำเสียง${tone} แต่คงความหมายเดิม:\n\n${text}\n\nตอบเฉพาะข้อความที่เขียนใหม่แล้ว`,
+    continue: (text, tone) => `เขียนต่อเนื่องจากข้อความต่อไปนี้ ด้วยสไตล์และน้ำเสียง${tone}เดียวกัน:\n\n${text}\n\nตอบเฉพาะส่วนที่เขียนต่อ`,
+    title: (text) => `สร้างหัวข้อหรือชื่อเรื่องที่น่าสนใจ 5 แบบสำหรับข้อความต่อไปนี้:\n\n${text}\n\nตอบเป็นรายการหมายเลข`,
+  };
+
+  const TONE_MAP = {
+    neutral: 'เป็นกลาง',
+    formal: 'เป็นทางการ',
+    casual: 'ไม่เป็นทางการ',
+    professional: 'มืออาชีพ',
+    friendly: 'เป็นมิตร',
+    persuasive: 'โน้มน้าว',
+  };
+
+  let currentMode = 'improve';
+  let outputContent = '';
+
+  // Mode buttons
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentMode = btn.dataset.mode;
+    });
+  });
+
+  // Word count
+  const inputText = document.getElementById('inputText');
+  const wordCount = document.getElementById('wordCount');
+  inputText.addEventListener('input', () => {
+    const words = inputText.value.trim().split(/\s+/).filter(Boolean).length;
+    wordCount.textContent = `${words} คำ`;
+  });
+
+  // Clear
+  document.getElementById('clearBtn').addEventListener('click', () => {
+    inputText.value = '';
+    wordCount.textContent = '0 คำ';
+  });
+
+  // Generate
+  document.getElementById('generateBtn').addEventListener('click', generate);
+
+  async function generate() {
+    const apiKey = document.getElementById('apiKey').value.trim();
+    const text = inputText.value.trim();
+    const tone = TONE_MAP[document.getElementById('tone').value];
+    const lang = document.getElementById('targetLang').options[document.getElementById('targetLang').selectedIndex].text;
+
+    if (!apiKey) { showToast('กรุณาใส่ Gemini API Key'); return; }
+    if (!text) { showToast('กรุณาพิมพ์ข้อความก่อน'); return; }
+
+    const prompt = PROMPTS[currentMode](text, tone, lang);
+    const btn = document.getElementById('generateBtn');
+    const btnText = document.getElementById('btnText');
+    const outputBody = document.getElementById('outputBody');
+    const copyBtn = document.getElementById('copyBtn');
+    const useBtn = document.getElementById('useBtn');
+
+    btn.disabled = true;
+    btnText.innerHTML = '<span class="spinner"></span> กำลังสร้าง...';
+    copyBtn.disabled = true;
+    useBtn.disabled = true;
+    outputContent = '';
+
+    outputBody.innerHTML = '<div class="output-text" id="streamOutput"></div>';
+    const streamEl = document.getElementById('streamOutput');
+
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?key=${apiKey}&alt=sse`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
+          })
+        }
+      );
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || `HTTP ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim();
+            if (data === '[DONE]') continue;
+            try {
+              const json = JSON.parse(data);
+              const chunk = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              outputContent += chunk;
+              streamEl.innerHTML = escapeHtml(outputContent) + '<span class="streaming-cursor"></span>';
+              outputBody.scrollTop = outputBody.scrollHeight;
+            } catch {}
+          }
+        }
+      }
+
+      streamEl.innerHTML = escapeHtml(outputContent);
+      copyBtn.disabled = false;
+      useBtn.disabled = false;
+
+    } catch (err) {
+      outputBody.innerHTML = `<div style="color:var(--error);padding:8px">${err.message}</div>`;
+    } finally {
+      btn.disabled = false;
+      btnText.textContent = '✨ สร้างข้อความ';
+    }
+  }
+
+  // Copy
+  document.getElementById('copyBtn').addEventListener('click', () => {
+    navigator.clipboard.writeText(outputContent).then(() => showToast('คัดลอกแล้ว ✓'));
+  });
+
+  // Use as input
+  document.getElementById('useBtn').addEventListener('click', () => {
+    inputText.value = outputContent;
+    const words = outputContent.trim().split(/\s+/).filter(Boolean).length;
+    wordCount.textContent = `${words} คำ`;
+    showToast('ใส่เป็นต้นฉบับแล้ว ✓');
+  });
+
+  function escapeHtml(text) {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>');
+  }
+
+  function showToast(msg) {
+    const toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2500);
+  }
+</script>
+</body>
+</html>
