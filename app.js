@@ -10,7 +10,7 @@ import { renderLayer, computeTrainingProgress, computeCoreProgress, computeTextC
 import { HandwritingTrainer, createEmptyProfile, TRAINING_SETS } from "./js/handwriting-trainer.js";
 import { loadPdfFile, generateThumbnails, renderPdfPageToCanvas, getPdfPageCount } from "./js/pdf-manager.js";
 import { extractQuestionFromSelection, OCR_PROVIDERS } from "./js/ocr-service.js";
-import { generateSolution } from "./js/ai-service.js";
+import { generateSolution, autoFillTable } from "./js/ai-service.js";
 import { generateImage } from "./js/image-service.js";
 import { createLayer, duplicateLayer, LayerHistory } from "./js/layers.js";
 import * as storage from "./js/storage.js";
@@ -77,6 +77,11 @@ const els = {
   imageDemoModeNotice: $("imageDemoModeNotice"), imageResultBox: $("imageResultBox"),
   imageResultPreview: $("imageResultPreview"), downloadImageBtn: $("downloadImageBtn"),
 
+  layerModeBtn: $("layerModeBtn"),
+  autoFillBtn: $("autoFillBtn"), autoFillDemoNotice: $("autoFillDemoNotice"),
+  autoFillProgress: $("autoFillProgress"), autoFillProgressFill: $("autoFillProgressFill"),
+  autoFillProgressStatus: $("autoFillProgressStatus"),
+
   toast: $("toast"),
   dialogBackdrop: $("confirmDialog"), dialogTitle: $("dialogTitle"),
   dialogCancelBtn: $("dialogCancelBtn"), dialogConfirmBtn: $("dialogConfirmBtn"),
@@ -91,11 +96,89 @@ const state = {
   selectedLayerId: null,
   pdfDoc: null,
   fallbackFontFamily: FALLBACK_FONT_FAMILY,
+  editorMode: "select", // 'select' | 'layer'
 };
 
 const history = new LayerHistory();
 const editor = new WorkAreaEditor(els.baseCanvas, els.overlayCanvas, els.viewport, els.layersCanvas);
 editor.onSelectionChange = (sel) => { els.ocrBtn.disabled = !sel; };
+
+/* ============================ Feature 2: Layer drag mode ============================ */
+
+/** แปลง client coordinates → canvas coordinates (เหมือน editor.clientToCanvas) */
+function _clientToCanvas(clientX, clientY) {
+  const rect = els.overlayCanvas.getBoundingClientRect();
+  return {
+    x: (clientX - rect.left) * (els.overlayCanvas.width / rect.width),
+    y: (clientY - rect.top) * (els.overlayCanvas.height / rect.height),
+  };
+}
+
+/** หา layer ที่จุดนั้น (ค้นจากบนสุดก่อน) */
+function _findLayerAt(pt, layers) {
+  for (let i = layers.length - 1; i >= 0; i--) {
+    const l = layers[i];
+    const lineCount = Math.max(1, l.text.split("\n").length);
+    const h = l.lineHeight * l.scale * lineCount;
+    if (pt.x >= l.x && pt.x <= l.x + l.width * l.scale && pt.y >= l.y && pt.y <= l.y + h) return l;
+  }
+  return null;
+}
+
+let _layerDrag = null; // { layerId, startPt, origX, origY }
+
+els.overlayCanvas.addEventListener("pointerdown", (e) => {
+  if (state.editorMode !== "layer") return;
+  const pt = _clientToCanvas(e.clientX, e.clientY);
+  const hit = _findLayerAt(pt, currentLayers());
+  if (!hit) return;
+  e.stopPropagation();
+  els.overlayCanvas.setPointerCapture(e.pointerId);
+  _layerDrag = { layerId: hit.id, startPt: pt, origX: hit.x, origY: hit.y };
+  selectLayer(hit.id);
+}, { capture: true });
+
+els.overlayCanvas.addEventListener("pointermove", (e) => {
+  if (!_layerDrag || state.editorMode !== "layer") return;
+  e.stopPropagation();
+  const pt = _clientToCanvas(e.clientX, e.clientY);
+  const layer = currentLayers().find((l) => l.id === _layerDrag.layerId);
+  if (!layer) return;
+  layer.x = Math.max(0, _layerDrag.origX + (pt.x - _layerDrag.startPt.x));
+  layer.y = Math.max(0, _layerDrag.origY + (pt.y - _layerDrag.startPt.y));
+  renderLayersCanvas();
+  editor.drawLayerOutlines(currentLayers(), state.selectedLayerId);
+  syncLayerEditFields();
+  debounceAutosave();
+}, { capture: true });
+
+els.overlayCanvas.addEventListener("pointerup", (e) => {
+  if (!_layerDrag) return;
+  e.stopPropagation();
+  _layerDrag = null;
+}, { capture: true });
+
+els.overlayCanvas.addEventListener("pointercancel", () => { _layerDrag = null; }, { capture: true });
+
+/** สลับโหมด select ↔ layer */
+function setEditorMode(mode) {
+  state.editorMode = mode;
+  const isLayer = mode === "layer";
+  els.layerModeBtn.setAttribute("aria-pressed", String(isLayer));
+  els.layerModeBtn.classList.toggle("active", isLayer);
+  if (isLayer) {
+    editor.clearSelection();
+    editor.drawLayerOutlines(currentLayers(), state.selectedLayerId);
+    els.ocrBtn.disabled = true;
+  } else {
+    editor.drawLayerOutlines([], null); // ล้าง outlines
+    els.ocrBtn.disabled = !editor.selection;
+  }
+}
+
+els.layerModeBtn.addEventListener("click", () => {
+  setEditorMode(state.editorMode === "layer" ? "select" : "layer");
+});
 
 /* ============================ Utilities ============================ */
 function toast(message, isError = false) {
@@ -430,6 +513,9 @@ function selectLayer(id) {
   syncLayerEditFields();
   els.duplicateLayerBtn.disabled = !id;
   els.deleteLayerBtn.disabled = !id;
+  if (state.editorMode === "layer") {
+    editor.drawLayerOutlines(currentLayers(), id);
+  }
 }
 
 function refreshLayersUI() {
@@ -494,6 +580,9 @@ function renderLayersCanvas() {
     els.untrainedNotice.textContent = `ตัวอักษรที่ยังไม่ได้ฝึก จะแสดงด้วยฟอนต์ตัวอย่างแทน: ${[...untrained].slice(0, 20).join(" ")}`;
   } else {
     els.untrainedNotice.hidden = true;
+  }
+  if (state.editorMode === "layer") {
+    editor.drawLayerOutlines(currentLayers(), state.selectedLayerId);
   }
 }
 
@@ -762,6 +851,93 @@ bindProfileSetting(els.wordSpacingRange, "wordSpacing", els.wordSpacingVal);
 bindProfileSetting(els.jitterRange, "baselineJitter", els.jitterVal);
 bindProfileSetting(els.thicknessRange, "strokeThickness", els.thicknessVal);
 
+/* ============================ Feature 1: Auto-fill table ============================ */
+
+/**
+ * ย่อภาพ canvas ให้ความกว้างไม่เกิน maxW ก่อนส่ง AI (ลดขนาด payload)
+ * ส่งคืน { dataUrl, scaleX, scaleY } เพื่อแปลงพิกัดที่ AI ส่งกลับมาให้ตรงกับ canvas จริง
+ */
+function _scalePageForAI(page, maxW = 1200) {
+  const scaleX = Math.min(1, maxW / page.width);
+  const scaleY = scaleX; // รักษา aspect ratio
+  const w = Math.round(page.width * scaleX);
+  const h = Math.round(page.height * scaleY);
+  const tmp = document.createElement("canvas");
+  tmp.width = w; tmp.height = h;
+  const img = new Image();
+  img.src = page.imageDataUrl;
+  tmp.getContext("2d").drawImage(img, 0, 0, w, h);
+  return { dataUrl: tmp.toDataURL("image/jpeg", 0.88), scaleX, scaleY };
+}
+
+els.autoFillBtn.addEventListener("click", async () => {
+  const page = currentPage();
+  if (!page) { toast("กรุณานำเข้าใบงานก่อน", true); return; }
+
+  setBtnLoading(els.autoFillBtn, true, "กำลังวิเคราะห์ตาราง...");
+  els.autoFillDemoNotice.hidden = true;
+  els.autoFillProgress.hidden = false;
+  els.autoFillProgressStatus.textContent = "กำลังส่งภาพให้ AI วิเคราะห์...";
+  els.autoFillProgressFill.style.width = "20%";
+
+  try {
+    const { dataUrl, scaleX, scaleY } = _scalePageForAI(page);
+    const scaledW = Math.round(page.width * scaleX);
+    const scaledH = Math.round(page.height * scaleY);
+
+    const result = await autoFillTable({
+      imageBase64: dataUrl,
+      subject: els.subjectSelect.value,
+      pageWidth: scaledW,
+      pageHeight: scaledH,
+    });
+
+    els.autoFillProgressFill.style.width = "80%";
+    els.autoFillProgressStatus.textContent = "กำลังสร้างเลเยอร์...";
+
+    if (!result.cells.length) {
+      toast("AI ไม่พบช่องว่างในตาราง — ลองเปลี่ยนวิชาหรือตรวจสอบภาพ", true);
+      return;
+    }
+
+    history.push(currentLayers());
+
+    result.cells.forEach((cell) => {
+      // แปลงพิกัดจากภาพที่ย่อส่ง AI กลับมาเป็นพิกัด canvas จริง
+      const realX = Math.round(cell.x / scaleX);
+      const realY = Math.round(cell.y / scaleY);
+      const realW = Math.round((cell.width || 300) / scaleX);
+      const layer = createLayer({
+        text: cell.answer || "",
+        x: realX,
+        y: realY,
+        width: realW,
+        fontSize: 20,
+        lineHeight: 28,
+        handwritingProfileId: state.profile?.id || null,
+        inkColor: "#1f3a5f",
+      });
+      currentPage().layers.push(layer);
+    });
+
+    refreshLayersUI();
+    renderLayersCanvas();
+    autosaveDocument();
+
+    els.autoFillDemoNotice.hidden = !result.isDemo;
+    toast(`เติม ${result.cells.length} ช่องสำเร็จ${result.isDemo ? " (โหมดทดลอง)" : ""} — ปรับตำแหน่งด้วยโหมด 🖱 ย้ายเลเยอร์`);
+
+    if (result.isDemo || result.cells.length) {
+      setEditorMode("layer");
+    }
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    setBtnLoading(els.autoFillBtn, false, "✨ เติมทั้งตาราง (Auto)");
+    els.autoFillProgress.hidden = true;
+  }
+});
+
 /* ============================ Export ============================ */
 els.exportPagePngBtn.addEventListener("click", async () => {
   if (!currentPage()) return;
@@ -783,10 +959,33 @@ els.exportPdfBtn.addEventListener("click", async () => {
   );
 });
 
+/** Pre-render หน้า PDF ที่ยังไม่เคยเปิด (state.doc.pages[i] === null) ก่อน export ทุกหน้า */
+async function ensureAllPagesRendered(onProgress) {
+  if (!state.doc?.pages || !state.pdfDoc) return;
+  for (let i = 0; i < state.doc.pages.length; i++) {
+    if (state.doc.pages[i]) continue;
+    onProgress?.(`กำลัง render หน้า ${i + 1}/${state.doc.pages.length} ก่อน export...`);
+    const { width, height } = await renderPdfPageToCanvas(state.pdfDoc, i + 1, els.baseCanvas, 1);
+    state.doc.pages[i] = {
+      id: `page_${i + 1}`,
+      imageDataUrl: els.baseCanvas.toDataURL("image/png"),
+      width, height, layers: [],
+    };
+  }
+  // คืนหน้าปัจจุบันกลับมา
+  if (state.doc.pages[state.pageIndex]) {
+    await loadPageIntoCanvas(state.pageIndex);
+  }
+}
+
 async function runExportWithProgress(task) {
   if (!state.doc?.pages?.length) { toast("ยังไม่มีเอกสารให้ส่งออก", true); return; }
   els.exportProgress.hidden = false;
   try {
+    await ensureAllPagesRendered((msg) => {
+      els.exportProgressStatus.textContent = msg;
+      els.exportProgressFill.style.width = "10%";
+    });
     await task();
     toast("ส่งออกไฟล์สำเร็จ");
   } catch (e) {

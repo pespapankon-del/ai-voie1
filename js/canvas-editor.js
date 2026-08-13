@@ -231,6 +231,34 @@ export class WorkAreaEditor {
     this.onSelectionChange(null);
   }
 
+  /**
+   * วาดกรอบประเมินตำแหน่งของแต่ละ layer บน overlayCanvas (โหมดย้ายเลเยอร์)
+   * เรียกจาก app.js เมื่อเปลี่ยน layer หรือ selection
+   * @param {object[]} layers รายการ layer ทั้งหมดในหน้านี้
+   * @param {string|null} selectedId id ของ layer ที่เลือกอยู่ (ไฮไลต์ต่างออกไป)
+   */
+  drawLayerOutlines(layers, selectedId) {
+    const ctx = this.overlayCtx;
+    ctx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
+    layers.forEach((l) => {
+      const lineCount = Math.max(1, l.text.split("\n").length);
+      const h = l.lineHeight * l.scale * lineCount;
+      const w = l.width * l.scale;
+      ctx.save();
+      const isSelected = l.id === selectedId;
+      ctx.strokeStyle = isSelected ? "#2F6B54" : "rgba(47,107,84,0.45)";
+      ctx.lineWidth = isSelected ? 3 : 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(l.x, l.y, w, h);
+      if (isSelected) {
+        ctx.fillStyle = "rgba(47,107,84,0.06)";
+        ctx.fillRect(l.x, l.y, w, h);
+      }
+      ctx.setLineDash([]);
+      ctx.restore();
+    });
+  }
+
   reset() {
     this.selection = null;
     this.resetView();

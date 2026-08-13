@@ -56,6 +56,8 @@
         <button id="deleteSelBtn" class="icon-btn" type="button">ลบพื้นที่ที่เลือก</button>
         <button id="clearSelBtn" class="icon-btn" type="button">ยกเลิกการเลือก</button>
         <button id="resetViewBtn" class="icon-btn" type="button">รีเซ็ตมุมมอง</button>
+        <span class="toolbar__sep" aria-hidden="true"></span>
+        <button id="layerModeBtn" class="icon-btn" type="button" aria-pressed="false" title="สลับโหมดย้ายเลเยอร์โดยตรงบน canvas">🖱 ย้ายเลเยอร์</button>
       </div>
 
       <div id="viewport" class="canvas-viewport">
@@ -104,7 +106,18 @@
       <textarea id="answerText" rows="6" placeholder="คำตอบจาก AI หรือพิมพ์เอง"></textarea>
 
       <p id="coverageNotice" class="notice" hidden></p>
-      <button id="addLayerBtn" class="btn btn--accent" type="button" disabled>วางคำตอบนี้ลงบนใบงาน</button>
+      <div class="btn-row">
+        <button id="addLayerBtn" class="btn btn--accent" type="button" disabled>วางคำตอบนี้ลงบนใบงาน</button>
+        <button id="autoFillBtn" class="btn btn--primary" type="button" title="AI วิเคราะห์ภาพทั้งหน้า → เติมทุกช่องว่างพร้อมกัน">
+          <span class="btn__label">✨ เติมทั้งตาราง (Auto)</span>
+          <span class="btn__spinner" hidden></span>
+        </button>
+      </div>
+      <p id="autoFillDemoNotice" class="notice" hidden>โหมดทดลอง: ตำแหน่งและคำตอบเป็นตัวอย่าง ปรับตำแหน่งได้ด้วยโหมดย้ายเลเยอร์</p>
+      <div id="autoFillProgress" class="progress" hidden aria-live="polite">
+        <div class="progress__bar"><div id="autoFillProgressFill" class="progress__fill"></div></div>
+        <p id="autoFillProgressStatus" class="progress__status"></p>
+      </div>
     </div>
 
     <div class="panel">

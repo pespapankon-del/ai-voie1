@@ -50,6 +50,47 @@ export async function generateSolution({ question, subject, language = "th", det
   }
 }
 
+/* ============================ Auto-fill table ============================ */
+
+/**
+ * ส่งภาพหน้าใบงานไปให้ AI วิเคราะห์ตาราง และส่งกลับรายการช่องว่าง + คำตอบ + พิกัดโดยประมาณ
+ * @param {{ imageBase64: string, subject: string, pageWidth: number, pageHeight: number }}
+ * @returns {{ cells: {hormone,answer,x,y,width,height}[], isDemo: boolean }}
+ */
+export async function autoFillTable({ imageBase64, subject = "ชีววิทยา", pageWidth, pageHeight }) {
+  if (!imageBase64) throw new Error("ไม่มีภาพให้ AI วิเคราะห์");
+  try {
+    const res = await fetch("/api/autofill", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageBase64, subject, pageWidth, pageHeight }),
+    });
+    if (res.status === 404 || res.status === 501) return _demoAutoFill();
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `เซิร์ฟเวอร์ตอบผิดพลาด (${res.status})`);
+    }
+    const data = await res.json();
+    return { cells: Array.isArray(data.cells) ? data.cells : [], isDemo: false };
+  } catch (err) {
+    if (err instanceof TypeError) return _demoAutoFill();
+    throw err;
+  }
+}
+
+function _demoAutoFill() {
+  return {
+    isDemo: true,
+    cells: [
+      { hormone: "Glucocorticoids (Cortisol)", answer: "กระตุ้นการสลายไกลโคเจนในตับ เพิ่มน้ำตาลในเลือด ต้านการอักเสบ ลดการตอบสนองของระบบภูมิคุ้มกัน", x: 420, y: 80, width: 340, height: 44 },
+      { hormone: "Mineralocorticoids (Aldosterone)", answer: "ควบคุมสมดุลน้ำและเกลือแร่ กระตุ้นท่อไตดูดกลับ Na⁺ และขับ K⁺ ออก ทำให้ความดันโลหิตสูงขึ้น", x: 420, y: 130, width: 340, height: 44 },
+      { hormone: "Androgen", answer: "กระตุ้นการพัฒนาลักษณะเพศชายรอง เช่น เส้นขน มวลกล้ามเนื้อ และความต้องการทางเพศ", x: 420, y: 180, width: 340, height: 44 },
+    ],
+  };
+}
+
+/* ============================ end Auto-fill ============================ */
+
 function demoModeAnswer(question, subject) {
   const steps = [
     `อ่านโจทย์ให้เข้าใจก่อนว่าโจทย์วิชา${subject || "ทั่วไป"}ข้อนี้ถามอะไร`,

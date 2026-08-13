@@ -211,6 +211,13 @@ input[type=color]{ width:56px; height:38px; border:none; padding:0; background:n
 
 .footer{ text-align:center; font-size:.75rem; color: var(--ink-soft); padding: 10px 0 30px; }
 
+/* layer mode toggle active state */
+.icon-btn.active{
+  background: var(--cover-green);
+  color: #fff;
+  border-color: var(--cover-green-dark);
+}
+
 @media (min-width: 760px){
   .workarea{ display:grid; }
 }
