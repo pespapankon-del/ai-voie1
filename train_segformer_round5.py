@@ -40,20 +40,32 @@ VAL_LIST   = DFUT / "Labeled/labeled_val_names.txt"
 PSEUDO_IMG  = DFUT / "PseudoLabeled/Images"
 PSEUDO_MASK = DFUT / "PseudoLabeled/Annotations"
 
-NECROTIC_BASE  = Path(r"C:\Users\Asus_ROG\Desktop\VITA_Project_Files\datasets\necrotic_roboflow")
+NECROTIC_BASE  = Path(r"C:\VITA_Round3\datasets\necrotic_roboflow")
 NECROTIC_TRAIN = NECROTIC_BASE / "train"
 NECROTIC_VALID = NECROTIC_BASE / "valid"
 
-NECROTIC_ANN_BASE  = Path(r"C:\Users\Asus_ROG\Desktop\VITA_Project_Files\datasets\necrotic_annotated")
+NECROTIC_ANN_BASE  = Path(r"C:\VITA_Round3\datasets\necrotic_annotated")
 NECROTIC_ANN_TRAIN = NECROTIC_ANN_BASE / "train"
 NECROTIC_ANN_VALID = NECROTIC_ANN_BASE / "valid"
+
+# ใหม่ใน Round 5: เสริม Fibrin / Granulation / Necrotic
+# (แปลงด้วย convert_seg_ulcer.py ก่อนรันเทรน)
+SEG_ULCER_BASE  = Path(r"C:\VITA_Round3\datasets\seg_ulcer")
+SEG_ULCER_TRAIN = SEG_ULCER_BASE / "train"
+SEG_ULCER_VALID = SEG_ULCER_BASE / "valid"
+
+# ใหม่ใน Round 5: เสริม Callus
+# (แปลงด้วย convert_foot_callus.py ก่อนรันเทรน)
+FOOT_CALLUS_BASE  = Path(r"C:\VITA_Round3\datasets\foot_callus")
+FOOT_CALLUS_TRAIN = FOOT_CALLUS_BASE / "train"
+FOOT_CALLUS_VALID = FOOT_CALLUS_BASE / "valid"
 
 SAVE_DIR = Path(__file__).resolve().parent / "checkpoints"
 SAVE_DIR.mkdir(exist_ok=True)
 
-# Load from Round 3 best; save to separate R4 file so R3 is preserved
-ROUND3_CKPT = SAVE_DIR / "segformer_b4_5class_best.pth"
-SAVE_BEST   = SAVE_DIR / "segformer_b4_5class_r4_best.pth"
+# Load from Round 4 best; save to separate R5 file so R4 is preserved
+ROUND4_CKPT = SAVE_DIR / "segformer_b4_5class_r4_best.pth"
+SAVE_BEST   = SAVE_DIR / "segformer_b4_5class_r5_best.pth"
 PHASE3_CKPT = SAVE_DIR / "segformer_b4_best.pth"  # fallback: 4-class encoder
 
 # ── Config ───────────────────────────────────────────────────────────────────
@@ -61,12 +73,12 @@ IMG_SIZE     = 512
 BATCH_SIZE   = 4
 NUM_CLASSES  = 5
 EPOCHS       = 50
-LR           = 1e-5        # lower than R3 (2e-5) — fine-tune at end of schedule
+LR           = 5e-6        # ลดลงจาก R4 (1e-5) — R4 converge เร็วมากที่ Ep1 แล้ว
 WEIGHT_DECAY = 1e-4        # AdamW decoupled decay
 DICE_WEIGHT  = 0.5         # loss = (1-DICE_WEIGHT)*CE + DICE_WEIGHT*Dice
 
-# Same class weights as Round 3
-CLASS_WEIGHTS = torch.tensor([0.3, 6.0, 2.5, 1.2, 8.0], dtype=torch.float32)
+# เพิ่ม weight ของ Fibrin และ Callus (Dice ต่ำสุดใน eval Round 4: 0.5639, 0.6083)
+CLASS_WEIGHTS = torch.tensor([0.3, 8.0, 2.5, 3.0, 8.0], dtype=torch.float32)
 CLASS_NAMES   = ["Background", "Fibrin", "Granulation", "Callus", "Necrotic"]
 
 # ── Augmentations ─────────────────────────────────────────────────────────────
@@ -153,8 +165,9 @@ class DFUTissueDataset(Dataset):
 
 
 class NecroticDataset(Dataset):
-    """Necrotic images with converted PNG masks — class 4 = Necrotic"""
-    def __init__(self, split_dir, transform=None):
+    """images + masks/ subfolder — ใช้ร่วมกันได้กับทุก dataset ที่แปลงด้วย
+    convert_*.py (necrotic, seg_ulcer, foot_callus) เพราะโครงสร้างเหมือนกัน"""
+    def __init__(self, split_dir, transform=None, weight=6.0):
         self.transform = transform
         split_dir = Path(split_dir)
         mask_dir  = split_dir / "masks"
@@ -165,7 +178,7 @@ class NecroticDataset(Dataset):
             m = mask_dir / (img_path.stem + ".png")
             if m.exists():
                 self.pairs.append((img_path, m))
-        self.sample_weights = [6.0] * len(self.pairs)
+        self.sample_weights = [weight] * len(self.pairs)
 
     def __len__(self): return len(self.pairs)
 
@@ -294,15 +307,43 @@ def train():
     else:
         print("[!] necrotic_annotated masks not found — skipping")
 
+    # Segmentation-ulcer — เสริม Fibrin (Sloughy) / Granulation / Necrotic
+    seg_ulcer_train = seg_ulcer_val = None
+    if (SEG_ULCER_TRAIN / "masks").exists():
+        seg_ulcer_train = NecroticDataset(SEG_ULCER_TRAIN, train_tf, weight=8.0)
+        seg_ulcer_val   = NecroticDataset(SEG_ULCER_VALID, val_tf,   weight=8.0)
+        datasets.append(seg_ulcer_train)
+        weights  += seg_ulcer_train.sample_weights
+        print(f"SegUlcer    : {len(seg_ulcer_train)}")
+    else:
+        print("[!] seg_ulcer masks not found — run convert_seg_ulcer.py first, skipping")
+
+    # Foot Callus Detection — เสริม Callus
+    foot_callus_train = foot_callus_val = None
+    if (FOOT_CALLUS_TRAIN / "masks").exists():
+        foot_callus_train = NecroticDataset(FOOT_CALLUS_TRAIN, train_tf, weight=8.0)
+        foot_callus_val   = NecroticDataset(FOOT_CALLUS_VALID, val_tf,   weight=8.0)
+        datasets.append(foot_callus_train)
+        weights  += foot_callus_train.sample_weights
+        print(f"FootCallus  : {len(foot_callus_train)}")
+    else:
+        print("[!] foot_callus masks not found — run convert_foot_callus.py first, skipping")
+
     combined = ConcatDataset(datasets)
     print(f"\nTotal train : {len(combined)}")
 
     val_parts = [dfu_val, necro_val]
     if necro_ann_val is not None:
         val_parts.append(necro_ann_val)
+    if seg_ulcer_val is not None:
+        val_parts.append(seg_ulcer_val)
+    if foot_callus_val is not None:
+        val_parts.append(foot_callus_val)
     val_combined = ConcatDataset(val_parts)
     print(f"DFU val     : {len(dfu_val)}, Necrotic val: {len(necro_val)}"
-          + (f", Necrotic v2 val: {len(necro_ann_val)}" if necro_ann_val else ""))
+          + (f", Necrotic v2 val: {len(necro_ann_val)}" if necro_ann_val else "")
+          + (f", SegUlcer val: {len(seg_ulcer_val)}" if seg_ulcer_val else "")
+          + (f", FootCallus val: {len(foot_callus_val)}" if foot_callus_val else ""))
     print(f"Total val   : {len(val_combined)}\n")
 
     sampler = WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
@@ -316,6 +357,10 @@ def train():
     necro_val_loader  = DataLoader(necro_val,  batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
     necro_ann_loader  = (DataLoader(necro_ann_val, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
                          if necro_ann_val else None)
+    seg_ulcer_loader  = (DataLoader(seg_ulcer_val, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
+                         if seg_ulcer_val else None)
+    foot_callus_loader = (DataLoader(foot_callus_val, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
+                         if foot_callus_val else None)
 
     print("Loading SegFormer-B4 (5-class)...")
     model = SegformerForSemanticSegmentation.from_pretrained(
@@ -326,9 +371,9 @@ def train():
         label2id={n: i for i, n in enumerate(CLASS_NAMES)},
     ).to(device)
 
-    if ROUND3_CKPT.exists():
-        print(f"[Round 4] Loading Round 3 best → {ROUND3_CKPT.name}")
-        model.load_state_dict(torch.load(ROUND3_CKPT, map_location=device), strict=True)
+    if ROUND4_CKPT.exists():
+        print(f"[Round 5] Loading Round 4 best → {ROUND4_CKPT.name}")
+        model.load_state_dict(torch.load(ROUND4_CKPT, map_location=device), strict=True)
         print(f"  Fine-tuning with LR={LR}, loss=CE({1-DICE_WEIGHT})+Dice({DICE_WEIGHT})")
     elif PHASE3_CKPT.exists():
         print(f"Fallback: loading Phase 3 encoder from {PHASE3_CKPT.name}")
@@ -384,6 +429,8 @@ def train():
         dfu_d   = eval_loader(model, dfu_val_loader,   device)
         necro_d = eval_loader(model, necro_val_loader, device)
         ann_d   = eval_loader(model, necro_ann_loader, device) if necro_ann_loader else None
+        seg_d   = eval_loader(model, seg_ulcer_loader, device) if seg_ulcer_loader else None
+        callus_d = eval_loader(model, foot_callus_loader, device) if foot_callus_loader else None
 
         cur_lr = optimizer.param_groups[0]["lr"]
         log = {
@@ -399,6 +446,8 @@ def train():
                 "dfu":      [round(v, 4) for v in dfu_d],
                 "necrotic": [round(v, 4) for v in necro_d],
                 **({"necrotic_v2": [round(v, 4) for v in ann_d]} if ann_d else {}),
+                **({"seg_ulcer": [round(v, 4) for v in seg_d]} if seg_d else {}),
+                **({"foot_callus": [round(v, 4) for v in callus_d]} if callus_d else {}),
             },
         }
         history.append(log)
@@ -409,7 +458,9 @@ def train():
               f"meanFG {mean_fg:.4f} | LR {cur_lr:.2e}")
         print(f"         DFU  Necro={dfu_d[4]:.4f}↓  "
               f"NecroDS Necro={necro_d[4]:.4f}"
-              + (f"  NecroV2 Necro={ann_d[4]:.4f}" if ann_d else ""))
+              + (f"  NecroV2 Necro={ann_d[4]:.4f}" if ann_d else "")
+              + (f"  SegUlcer Fib={seg_d[1]:.4f}" if seg_d else "")
+              + (f"  FootCallus Callus={callus_d[3]:.4f}" if callus_d else ""))
 
         if mean_fg > best_mean_dice:
             best_mean_dice   = mean_fg
@@ -424,9 +475,9 @@ def train():
                 break
 
         if epoch % 10 == 0:
-            torch.save(model.state_dict(), SAVE_DIR / f"segformer_b4_5class_r4_ep{epoch}.pth")
+            torch.save(model.state_dict(), SAVE_DIR / f"segformer_b4_5class_r5_ep{epoch}.pth")
 
-    with open(SAVE_DIR / "history_5class_r4.json", "w") as f:
+    with open(SAVE_DIR / "history_5class_r5.json", "w") as f:
         json.dump(history, f, indent=2)
 
     print(f"\nDone — Best meanFG Dice: {best_mean_dice:.4f}")
