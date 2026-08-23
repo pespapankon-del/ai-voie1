@@ -31,7 +31,7 @@ from transformers import SegformerForSemanticSegmentation
 sys.stdout.reconfigure(encoding='utf-8')
 
 # ── Paths ────────────────────────────────────────────────────────────────────
-BASE       = Path(__file__).resolve().parent.parent
+BASE       = Path(__file__).resolve().parent
 DFUT       = BASE / "datasets/dfu_tissue_segnet/DFUTissue"
 IMG_DIR    = DFUT / "Labeled/Original/Images/TrainVal"
 MASK_DIR   = DFUT / "Labeled/Original/Annotations/TrainVal"
