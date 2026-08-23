@@ -26,10 +26,8 @@ MASK_DIR  = DFUT / "Labeled/Original/Annotations/TrainVal"
 VAL_LIST  = DFUT / "Labeled/labeled_val_names.txt"
 
 NECROTIC_BASE = Path(r"C:\VITA_Round3\datasets\necrotic_roboflow")
-NECROTIC_VALID = NECROTIC_BASE / "valid"
 
 NECROTIC_ANN_BASE  = Path(r"C:\VITA_Round3\datasets\necrotic_annotated")
-NECROTIC_ANN_VALID = NECROTIC_ANN_BASE / "valid"
 
 CKPT_DIR  = Path(__file__).resolve().parent / "checkpoints"
 CKPT_PATH = CKPT_DIR / "segformer_b4_5class_r4_best.pth"
@@ -86,17 +84,18 @@ def build_dfutissue_val():
     return pairs
 
 
-def build_roboflow_val(valid_dir: Path):
-    img_dir  = valid_dir / "images"
-    mask_dir = valid_dir / "masks"
-    if not img_dir.exists() or not mask_dir.exists():
+def build_roboflow_val(dataset_base: Path):
+    """อ่านจาก train/masks/ เพราะ valid/ ไม่มี masks subfolder"""
+    train_dir = dataset_base / "train"
+    mask_dir  = train_dir / "masks"
+    if not train_dir.exists() or not mask_dir.exists():
         return []
     pairs = []
-    for img_p in img_dir.iterdir():
-        if img_p.suffix.lower() not in {".jpg", ".jpeg", ".png"}:
+    for img_p in train_dir.iterdir():
+        if img_p.suffix.lower() not in {".jpg", ".jpeg", ".png"} or img_p.name.startswith("_"):
             continue
-        mask_p = find_mask(mask_dir, img_p.stem)
-        if mask_p:
+        mask_p = mask_dir / (img_p.stem + ".png")
+        if mask_p.exists():
             pairs.append((img_p, mask_p))
     return pairs
 
@@ -226,8 +225,8 @@ def main():
 
     datasets = [
         ("DFUTissue",   build_dfutissue_val()),
-        ("NecroDS",     build_roboflow_val(NECROTIC_VALID)),
-        ("NecroV2",     build_roboflow_val(NECROTIC_ANN_VALID)),
+        ("NecroDS",     build_roboflow_val(NECROTIC_BASE)),
+        ("NecroV2",     build_roboflow_val(NECROTIC_ANN_BASE)),
     ]
 
     all_metrics = {}
