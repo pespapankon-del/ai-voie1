@@ -38,11 +38,11 @@ VAL_LIST   = DFUT / "Labeled/labeled_val_names.txt"
 PSEUDO_IMG  = DFUT / "PseudoLabeled/Images"
 PSEUDO_MASK = DFUT / "PseudoLabeled/Annotations"
 
-NECROTIC_BASE  = Path(r"C:\Users\papan\Desktop\VITA_Project_Files\datasets\necrotic_roboflow")
+NECROTIC_BASE  = Path(r"C:\Users\Asus_ROG\Desktop\VITA_Project_Files\datasets\necrotic_roboflow")
 NECROTIC_TRAIN = NECROTIC_BASE / "train"
 NECROTIC_VALID = NECROTIC_BASE / "valid"
 
-NECROTIC_ANN_BASE  = Path(r"C:\Users\papan\Desktop\VITA_Project_Files\datasets\necrotic_annotated")
+NECROTIC_ANN_BASE  = Path(r"C:\Users\Asus_ROG\Desktop\VITA_Project_Files\datasets\necrotic_annotated")
 NECROTIC_ANN_TRAIN = NECROTIC_ANN_BASE / "train"
 NECROTIC_ANN_VALID = NECROTIC_ANN_BASE / "valid"
 
