@@ -58,12 +58,29 @@
 
 **ทดสอบภาพจริง** (`test_inference.py`) — ทดสอบกับภาพ test set ที่โมเดลไม่เคยเห็น ผล segmentation ตรงกับตำแหน่งแผลจริง ขอบเขตชัดเจน ไม่มี noise
 
-### Round 6 (กำลังเทรน — 2026-08-24)
+### Round 6 — ❌ ทดลองไม่สำเร็จ (2026-08-24)
 - Checkpoint: `segformer_b4_5class_r6_best.pth` (โหลดต่อจาก Round 5 best)
-- LR = 5e-6, Class weights เท่า Round 5 (Fibrin/Callus ยังสำคัญ)
-- เพิ่ม dataset ใหม่ 2 ชุดเน้นแยก Necrotic vs Fibrin โดยเฉพาะ: `wound_tissue_v1`, `tissues_segment` (ดูตาราง Datasets ด้านบน #6-7)
-- สาเหตุ: พบ edge case ตอนทดสอบ generalization ของ Round 5 ที่โมเดลแยก Necrotic กับ Fibrin/Slough สับสน (ดูหัวข้อ Generalization ด้านล่าง)
-- ผลจะอัพเดทเมื่อเทรนเสร็จ
+- LR = 5e-6, Class weights เท่า Round 5
+- เพิ่ม dataset ใหม่ 2 ชุดเน้นแยก Necrotic vs Fibrin โดยเฉพาะ: `wound_tissue_v1` (180 ภาพ), `tissues_segment` (50 ภาพ)
+- สาเหตุที่ลอง: พบ edge case ตอนทดสอบ generalization ของ Round 5 ที่โมเดลแยก Necrotic กับ Fibrin/Slough สับสนในภาพเดียว (image107)
+- Early stop ที่ Epoch 39 (patience 15)
+
+**ผล: meanFG Dice ต่ำกว่า Round 5** — **0.7822** (Round 5 = 0.8694) ❌
+
+| Metric | Round 5 | Round 6 |
+|--------|---------|---------|
+| Best meanFG Dice | **0.8694** | 0.7822 |
+| FootCallus Callus | 0.8206 | ~0.67-0.69 (แย่ลงชัดเจน) |
+| NecroDS / NecroV2 Necro | ~0.77-0.78 / ~0.87-0.88 | ใกล้เคียงเดิม |
+| SegUlcer Fib | ~0.86-0.88 | ใกล้เคียงเดิม |
+| WoundV1 (dataset ใหม่) | - | Necro=0.28-0.33, Fib=0.50-0.55 (ต่ำมาก) |
+| TSeg (dataset ใหม่) | - | Necro=0.08-0.14, Fib=0.36-0.47 (ต่ำมาก) |
+
+**สาเหตุที่คาดว่าทำให้แย่ลง**:
+1. `wound_tissue_v1` และ `tissues_segment` มีขนาดเล็ก (180+50 ภาพ) และสไตล์ภาพ/แสง/มุมถ่ายต่างจาก dataset เดิมมาก — โมเดลเรียนรู้ได้ไม่ดี แทนที่จะช่วยกลับดึงประสิทธิภาพโดยรวมลง
+2. Callus ได้รับผลกระทบมากสุด (0.82→0.67) — น่าจะเพราะ `wound_tissue_v1` มี Callus label ปนแต่คุณภาพ/ปริมาณไม่พอ ทำให้โมเดลสับสนมากกว่าเรียนรู้เพิ่ม
+
+**บทสรุป**: **ไม่ใช้ Round 6** — กลับไปใช้ **Round 5 เป็นโมเดลหลัก** (`segformer_b4_5class_r5_best.pth`) สำหรับนำเสนอ ISTEM 2026 และ deploy บันทึกปัญหา Necrotic/Fibrin confusion ไว้เป็น **known limitation / future work** ใน paper แทนการพยายามแก้ต่อในสถานการณ์ที่มีเวลาจำกัด
 
 ⚠️ **หมายเหตุเรื่อง data leakage**: ตัวเลข Necrotic ที่ได้จาก `evaluate_round4.py` (NecroDS 0.9500, NecroV2 0.8907) วัดจาก `train/masks/` ของ necrotic_roboflow/necrotic_annotated เพราะ `valid/` ของสอง dataset นี้ไม่มี mask ให้ — ภาพที่ใช้วัดจึงเป็นภาพที่โมเดลเคยเห็นตอนเทรนมาแล้ว ตัวเลขนี้**สูงเกินจริง** ไม่ควรใช้เป็นตัวแทน generalization ที่แท้จริง ให้ใช้ตัวเลขจาก `evaluate_holdout.py` และการทดสอบ generalization ด้านล่างแทน
 
@@ -151,16 +168,18 @@
 | `evaluate_holdout.py` | ประเมินผลแบบไม่มี data leakage (seg_ulcer/test, foot_callus/test) |
 | `batch_test.py` | รันโมเดลกับหลายภาพในโฟลเดอร์เดียว + สรุปสถิติรวม |
 
-## Checkpoint ปัจจุบัน (ดีที่สุด)
+## Checkpoint ปัจจุบัน (ดีที่สุด — ใช้สำหรับ deploy และนำเสนอ)
 ```
 C:\VITA_Round3\checkpoints\segformer_b4_5class_r5_best.pth
 ```
+(Round 6 ทดลองแล้วแย่ลง — **ไม่ใช้** ดูรายละเอียดในหัวข้อ Round 6 ด้านบน)
 
 ---
 
 ## ขั้นตอนถัดไป
 - [x] รัน `evaluate_holdout.py` เพื่อได้ตัวเลขที่ไม่มี data leakage
 - [x] ทดสอบ generalization กับ dataset ภายนอก
-- [ ] Deploy โมเดลกับ LINE Bot + Web UI (repo `vita-dfu-bot`)
-- [ ] เตรียมเอกสาร/สไลด์สำหรับ ISTEM 2026
+- [x] ทดลอง Round 6 (เสริม Necrotic/Fibrin dataset) — ไม่สำเร็จ กลับไปใช้ Round 5
+- [ ] Deploy โมเดล Round 5 กับ LINE Bot + Web UI (repo `vita-dfu-bot`)
+- [ ] เตรียมเอกสาร/สไลด์สำหรับ ISTEM 2026 — ระบุ Necrotic/Fibrin confusion เป็น known limitation / future work
 - [ ] (แนะนำ) ให้บุคลากรทางการแพทย์ตรวจสอบภาพผลลัพธ์ตัวอย่าง ยืนยันความถูกต้องของการแยกชนิดเนื้อเยื่อก่อนนำเสนอ
