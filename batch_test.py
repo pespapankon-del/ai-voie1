@@ -2,10 +2,11 @@
 ใช้ logic เดียวกับ test_inference.py แต่ลูปทั้งโฟลเดอร์ + สรุปสถิติรวม
 
 Usage:
-  python batch_test.py "C:\\path\\to\\folder" [จำนวนภาพสูงสุด]
+  python batch_test.py "C:\\path\\to\\folder" [จำนวนภาพสูงสุด] [confidence_threshold]
 
 ตัวอย่าง:
   python batch_test.py "C:\\VITA_Round3\\datasets\\foot_ulcer_bbox\\test" 10
+  python batch_test.py "C:\\VITA_Round3\\datasets\\foot_ulcer_bbox\\test" 10 0    # ปิด threshold (เทียบก่อน/หลัง)
 """
 
 import sys
@@ -34,6 +35,10 @@ CLASS_COLORS = [
 ]
 
 CKPT_DIR = Path(__file__).resolve().parent / "checkpoints"
+
+# pixel ที่ confidence ต่ำกว่านี้ถูกดันกลับเป็น Background — เหมือน fix ที่ทำใน
+# vita-dfu-bot (segformer_segmentation.py) ปรับผ่าน CLI arg ตัวที่ 3 ได้
+CONFIDENCE_THRESHOLD = 0.5
 
 
 def find_checkpoint():
@@ -64,12 +69,17 @@ def preprocess(img: Image.Image):
 
 
 @torch.no_grad()
-def predict(model, img_tensor):
+def predict(model, img_tensor, conf_threshold=CONFIDENCE_THRESHOLD):
     x = img_tensor.to(DEVICE)
     out = model(pixel_values=x)
     logits = F.interpolate(out.logits, size=(IMG_SIZE, IMG_SIZE), mode="bilinear", align_corners=False)
     probs = F.softmax(logits, dim=1).squeeze(0).cpu().numpy()
-    return probs.argmax(0), probs
+    pred = probs.argmax(0)
+    conf = probs.max(axis=0)
+    if conf_threshold > 0:
+        pred = pred.copy()
+        pred[conf < conf_threshold] = 0  # Background
+    return pred, probs
 
 
 def make_overlay(img_arr, pred, alpha=0.55):
@@ -99,11 +109,13 @@ def make_legend(width, height=50):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python batch_test.py <folder> [max_images]")
+        print("Usage: python batch_test.py <folder> [max_images] [confidence_threshold]")
+        print(f"  confidence_threshold: default {CONFIDENCE_THRESHOLD} (0 = ปิดการกรอง)")
         return
 
     folder = Path(sys.argv[1])
     max_images = int(sys.argv[2]) if len(sys.argv) > 2 else 10
+    conf_threshold = float(sys.argv[3]) if len(sys.argv) > 3 else CONFIDENCE_THRESHOLD
     if not folder.exists():
         print(f"[ERROR] ไม่พบโฟลเดอร์: {folder}")
         return
@@ -116,8 +128,9 @@ def main():
     print(f"โหลดโมเดลจาก: {ckpt_path.name}")
     model = load_model(ckpt_path)
     print(f"Device: {DEVICE}")
+    print(f"Confidence threshold: {conf_threshold} ({'ปิด' if conf_threshold <= 0 else 'เปิด'})")
 
-    out_dir = folder / "batch_results"
+    out_dir = folder / f"batch_results_conf{conf_threshold:g}"
     out_dir.mkdir(exist_ok=True)
 
     img_paths = sorted([p for p in folder.iterdir()
@@ -136,7 +149,7 @@ def main():
     for img_path in img_paths:
         img = Image.open(img_path).convert("RGB")
         tensor = preprocess(img)
-        pred, probs = predict(model, tensor)
+        pred, probs = predict(model, tensor, conf_threshold=conf_threshold)
 
         total_px = pred.size
         pcts = [(pred == c).sum() / total_px * 100 for c in range(NUM_CLASSES)]

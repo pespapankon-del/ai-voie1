@@ -28,6 +28,11 @@ IMG_SIZE    = 512
 CLASS_NAMES = ["Background", "Fibrin", "Granulation", "Callus", "Necrotic"]
 DEVICE      = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# pixel ที่ confidence ต่ำกว่านี้ถูกดันกลับเป็น Background — เหมือน fix ที่ทำใน
+# vita-dfu-bot (segformer_segmentation.py) เพื่อลด false positive (Callus บนผิว
+# ปกติ, Fibrin จากแสงไม่สม่ำเสมอ) ปรับเทียบเคียงกันได้ผ่านตัวแปรนี้
+CONFIDENCE_THRESHOLD = 0.5
+
 CLASS_COLORS = [
     (0,   0,   0),    # Background — ดำ (โปร่งใส)
     (255, 255, 0),    # Fibrin — เหลือง
@@ -70,12 +75,16 @@ def preprocess(img: Image.Image):
 
 
 @torch.no_grad()
-def predict(model, img_tensor):
+def predict(model, img_tensor, conf_threshold=CONFIDENCE_THRESHOLD):
     x = img_tensor.to(DEVICE)
     out = model(pixel_values=x)
     logits = F.interpolate(out.logits, size=(IMG_SIZE, IMG_SIZE), mode="bilinear", align_corners=False)
     probs = F.softmax(logits, dim=1).squeeze(0).cpu().numpy()
     pred = probs.argmax(0)
+    conf = probs.max(axis=0)
+    if conf_threshold > 0:
+        pred = pred.copy()
+        pred[conf < conf_threshold] = 0  # Background
     return pred, probs
 
 
@@ -107,13 +116,16 @@ def make_legend(width, height=60):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python test_inference.py <path_to_image>")
+        print("Usage: python test_inference.py <path_to_image> [confidence_threshold]")
+        print(f"  confidence_threshold: default {CONFIDENCE_THRESHOLD} (0 = ปิดการกรอง)")
         return
 
     img_path = Path(sys.argv[1])
     if not img_path.exists():
         print(f"[ERROR] ไม่พบไฟล์: {img_path}")
         return
+
+    conf_threshold = float(sys.argv[2]) if len(sys.argv) > 2 else CONFIDENCE_THRESHOLD
 
     ckpt_path = find_checkpoint()
     if ckpt_path is None:
@@ -123,12 +135,13 @@ def main():
     print(f"โหลดโมเดลจาก: {ckpt_path.name}")
     model = load_model(ckpt_path)
     print(f"Device: {DEVICE}")
+    print(f"Confidence threshold: {conf_threshold} ({'ปิด' if conf_threshold <= 0 else 'เปิด'})")
 
     img = Image.open(img_path).convert("RGB")
     orig_w, orig_h = img.size
 
     tensor = preprocess(img)
-    pred, probs = predict(model, tensor)
+    pred, probs = predict(model, tensor, conf_threshold=conf_threshold)
 
     # ── สรุปพื้นที่แต่ละ class ────────────────────────────────────────────────
     total_px = pred.size
@@ -150,7 +163,8 @@ def main():
     final.paste(combined_img, (0, 0))
     final.paste(legend, (0, combined_img.height))
 
-    out_path = img_path.parent / f"{img_path.stem}_result.png"
+    suffix = "_result" if conf_threshold == CONFIDENCE_THRESHOLD else f"_result_conf{conf_threshold:g}"
+    out_path = img_path.parent / f"{img_path.stem}{suffix}.png"
     final.save(out_path)
     print(f"\nบันทึกผลที่: {out_path}")
 
