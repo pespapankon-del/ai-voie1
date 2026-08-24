@@ -58,6 +58,13 @@
 
 **ทดสอบภาพจริง** (`test_inference.py`) — ทดสอบกับภาพ test set ที่โมเดลไม่เคยเห็น ผล segmentation ตรงกับตำแหน่งแผลจริง ขอบเขตชัดเจน ไม่มี noise
 
+### Round 6 (กำลังเทรน — 2026-08-24)
+- Checkpoint: `segformer_b4_5class_r6_best.pth` (โหลดต่อจาก Round 5 best)
+- LR = 5e-6, Class weights เท่า Round 5 (Fibrin/Callus ยังสำคัญ)
+- เพิ่ม dataset ใหม่ 2 ชุดเน้นแยก Necrotic vs Fibrin โดยเฉพาะ: `wound_tissue_v1`, `tissues_segment` (ดูตาราง Datasets ด้านบน #6-7)
+- สาเหตุ: พบ edge case ตอนทดสอบ generalization ของ Round 5 ที่โมเดลแยก Necrotic กับ Fibrin/Slough สับสน (ดูหัวข้อ Generalization ด้านล่าง)
+- ผลจะอัพเดทเมื่อเทรนเสร็จ
+
 ⚠️ **หมายเหตุเรื่อง data leakage**: ตัวเลข Necrotic ที่ได้จาก `evaluate_round4.py` (NecroDS 0.9500, NecroV2 0.8907) วัดจาก `train/masks/` ของ necrotic_roboflow/necrotic_annotated เพราะ `valid/` ของสอง dataset นี้ไม่มี mask ให้ — ภาพที่ใช้วัดจึงเป็นภาพที่โมเดลเคยเห็นตอนเทรนมาแล้ว ตัวเลขนี้**สูงเกินจริง** ไม่ควรใช้เป็นตัวแทน generalization ที่แท้จริง ให้ใช้ตัวเลขจาก `evaluate_holdout.py` และการทดสอบ generalization ด้านล่างแทน
 
 ---
@@ -91,15 +98,24 @@
 
 ---
 
-## Datasets ที่ใช้
+## Datasets ที่ใช้ — แหล่งที่มาทั้งหมด
 
-| Dataset | จำนวนภาพที่ใช้ได้ | ใช้เสริม class | หมายเหตุ |
-|---------|-------------------|-----------------|----------|
-| DFUTissue (dfu_tissue_segnet) | หลัก (train/val split) | ทุก class | dataset หลักที่มี label ครบ 4 tissue types |
-| necrotic_roboflow | train+valid | Necrotic | ใช้ train/masks/ เพราะ valid ไม่มี mask |
-| necrotic_annotated (NecroV2) | train+valid | Necrotic | เช่นเดียวกับด้านบน |
-| **Segmentation-ulcer** (Roboflow Universe) | 161 ภาพ (112 train / 33 valid / 16 test) | Fibrin (จาก Sloughy), Granulation, Necrotic | ข้ามภาพที่มีแต่ Epithelialising (ไม่มี class ตรง) |
-| **Foot Callus Detection** (Roboflow Universe) | 202 ภาพ (143 train / 39 valid / 20 test) | Callus (จาก stage-1..4) | ข้ามภาพ unlabeled และ "normal foot" ล้วน |
+| # | Dataset | URL | License | Workspace | จำนวนภาพที่ใช้ได้ | ใช้เสริม class | สคริปต์แปลง | หมายเหตุ |
+|---|---------|-----|---------|-----------|-------------------|-----------------|--------------|----------|
+| 1 | DFUTissue (dfu_tissue_segnet) | — (dataset หลักที่มีอยู่แล้วในโปรเจกต์) | — | — | หลัก (train/val split) | ทุก class | — | dataset หลักที่มี label ครบ 4 tissue types |
+| 2 | necrotic_roboflow | (โฟลเดอร์ในเครื่อง — ต้นทางเดิมไม่ระบุ) | — | — | train+valid | Necrotic | `filter_necrotic.py` | ใช้ train/masks/ เพราะ valid ไม่มี mask (⚠️ data leakage) |
+| 3 | necrotic_annotated (NecroV2) | (โฟลเดอร์ในเครื่อง — ต้นทางเดิมไม่ระบุ) | — | — | train+valid | Necrotic | — | เช่นเดียวกับ #2 (⚠️ data leakage) |
+| 4 | Segmentation-ulcer | https://universe.roboflow.com/test-smyyl/segmentation-ulcer-41hbs | CC BY 4.0 | test-smyyl | 161 ภาพ (112 train / 33 valid / 16 test) | Fibrin (จาก Sloughy), Granulation, Necrotic | `convert_seg_ulcer.py` | ข้ามภาพที่มีแต่ Epithelialising (ไม่มี class ตรง) |
+| 5 | Foot Callus Detection | https://universe.roboflow.com/foot-callus-detection/foot-callus-detection-psxvo | CC BY 4.0 | foot-callus-detection | 202 ภาพ (143 train / 39 valid / 20 test) | Callus (จาก stage-1..4) | `convert_foot_callus.py` | ข้ามภาพ unlabeled และ "normal foot" ล้วน |
+| 6 | My First Project (wound_tissue_v1) | https://universe.roboflow.com/ramesh-singh-9tdm3/my-first-project-04qew | CC BY 4.0 | ramesh-singh-9tdm3 | 180/181 ภาพ (แบ่งเอง 144 train / 18 valid / 18 test) | Fibrin (Slough), Granulation, Callus, Necrotic | `convert_wound_tissue_v1.py` | ต้นฉบับ export มา train เดียว — สคริปต์แบ่ง split เอง (seed=42) |
+| 7 | tissues_segment | https://universe.roboflow.com/kaavian-systems/tissues_segment | CC BY 4.0 | kaavian-systems | 50 ภาพ (40 train / 6 valid / 4 test) | Fibrin (slough-tissue), Granulation, Necrotic | `convert_tissues_segment.py` | dataset เล็กแต่สะอาด มี split มาให้แล้ว |
+
+**Dataset ที่ตรวจสอบแล้วแต่ไม่ใช้** (เก็บไว้เป็นข้อมูลอ้างอิง กันเผลอใช้ซ้ำ):
+- `foot-ulcer-sf4ma` (adrija-hrj2o) — class name เสียหาย (README/version name หลุดมาเป็น class) ❌
+- `callus` (victorias-workspace-hoqsw) — มีแค่ 48 ภาพ ปน class "dish" ไม่เกี่ยวกับเท้า ❌
+
+**Dataset ที่ใช้ทดสอบ generalization เท่านั้น** (ไม่ได้เอามาเทรน):
+- **Foot Ulcer Detection**: https://universe.roboflow.com/ulcer-detection/foot-ulcer-detection — CC BY 4.0, 741 ภาพ, object detection (bbox เท่านั้น ไม่มี mask) — ใช้ตรวจสอบเชิงคุณภาพผ่าน `batch_test.py`
 
 ---
 
