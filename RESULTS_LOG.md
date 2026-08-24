@@ -58,6 +58,37 @@
 
 **ทดสอบภาพจริง** (`test_inference.py`) — ทดสอบกับภาพ test set ที่โมเดลไม่เคยเห็น ผล segmentation ตรงกับตำแหน่งแผลจริง ขอบเขตชัดเจน ไม่มี noise
 
+⚠️ **หมายเหตุเรื่อง data leakage**: ตัวเลข Necrotic ที่ได้จาก `evaluate_round4.py` (NecroDS 0.9500, NecroV2 0.8907) วัดจาก `train/masks/` ของ necrotic_roboflow/necrotic_annotated เพราะ `valid/` ของสอง dataset นี้ไม่มี mask ให้ — ภาพที่ใช้วัดจึงเป็นภาพที่โมเดลเคยเห็นตอนเทรนมาแล้ว ตัวเลขนี้**สูงเกินจริง** ไม่ควรใช้เป็นตัวแทน generalization ที่แท้จริง ให้ใช้ตัวเลขจาก `evaluate_holdout.py` และการทดสอบ generalization ด้านล่างแทน
+
+---
+
+## การทดสอบ Generalization กับข้อมูลภายนอก (2026-08-24)
+
+เพื่อตรวจสอบว่าโมเดลไม่ได้แค่ "จำ" ภาพที่เทรนมา แต่ใช้งานได้จริงกับภาพที่ไม่เคยเห็นเลย ได้ทดสอบ 2 ชั้น:
+
+### 1. Clean holdout (`evaluate_holdout.py`)
+วัดผลเฉพาะ `seg_ulcer/test/` (16 ภาพ) และ `foot_callus/test/` (20 ภาพ) — สอง split ที่ `train_segformer_round5.py` **ไม่เคยใช้เทรนหรือ validate เลย** (ใช้แค่ train/ กับ valid/) จึงไม่มี data leakage เลย ตัวเลขจากส่วนนี้เชื่อถือได้ 100% สำหรับ paper
+
+### 2. Dataset ภายนอกที่ไม่เกี่ยวข้องเลย ("Foot Ulcer Detection", Roboflow Universe)
+- Dataset คนละแหล่งข้อมูล ไม่ใช่ dataset ที่ใช้เทรนใน Round ใดเลย (741 ภาพ, class `ulcer`, bounding-box only ไม่มี mask ให้เทียบ Dice ได้ — ใช้ตรวจสอบเชิงคุณภาพ/แนวโน้มเท่านั้น)
+- ใช้ `batch_test.py` รันกับภาพ 15 ภาพจาก test split ของ dataset นี้
+
+**ผลค่าเฉลี่ยพื้นที่ต่อ class (15 ภาพ):**
+
+| Class | ค่าเฉลี่ย |
+|-------|----------|
+| Background | 85.90% |
+| Fibrin | 5.94% |
+| Granulation | 5.42% |
+| Callus | 0.98% |
+| Necrotic | 1.77% |
+
+**ข้อสังเกต:**
+- ขอบเขตแผล (localization) แม่นยำมาก ตรงตำแหน่งแผลจริงในทุกภาพที่ตรวจสอบด้วยตา
+- ภาพที่ไม่มีแผลชัดเจน โมเดลตอบ Background ถูกต้อง ไม่สร้าง false positive
+- พบ 1 ภาพ (image107) ที่โมเดลอาจแยก Necrotic กับ Fibrin/Slough สับสน (ทำนาย Necrotic ทับเนื้อเยื่อสีน้ำตาลอมเหลืองเกือบทั้งแผล) — ตรวจสอบ dataset ทั้งชุดแล้วพบว่าเป็น **edge case เดียว ไม่ใช่ pattern เป็นระบบ** (ค่าเฉลี่ย Necrotic รวมต่ำเพียง 1.77%)
+- **ข้อจำกัดของการทดสอบนี้**: ไม่มี ground-truth mask เทียบ จึงเป็นการตรวจสอบเชิงคุณภาพ (คนดูด้วยตา) ไม่ใช่ตัวเลข Dice ที่วัดได้แม่นยำ ควรให้บุคลากรทางการแพทย์ตรวจสอบภาพผลลัพธ์เพิ่มเติมก่อนอ้างอิงใน paper อย่างเป็นทางการ
+
 ---
 
 ## Datasets ที่ใช้
@@ -85,6 +116,8 @@
 | 2026-08-23/24 | เขียน `train_segformer_round5.py` รวม dataset ใหม่ + ปรับ class weight + ลด LR |
 | 2026-08-24 ~01:14 | Round 5 เทรนเสร็จ — best Ep46, meanFG=0.8694 ✅, Necrotic=0.8350 ✅, Fibrin=0.8953, Callus=0.8206 |
 | 2026-08-24 | ทดสอบ `test_inference.py` กับภาพจริงจาก test set — ผลตรงกับตำแหน่งแผลจริง ยืนยันโมเดลใช้งานได้ |
+| 2026-08-24 | เขียน `evaluate_holdout.py` วัดผลแบบไม่มี data leakage บน seg_ulcer/test และ foot_callus/test |
+| 2026-08-24 | ทดสอบ generalization กับ "Foot Ulcer Detection" dataset ภายนอก (741 ภาพ ไม่เกี่ยวกับที่เทรนเลย) ด้วย `batch_test.py` — ผลดี ขอบเขตแผลแม่นยำ, พบ edge case เดียวเรื่อง Necrotic/Fibrin สับสน |
 
 ---
 
@@ -99,6 +132,8 @@
 | `convert_seg_ulcer.py` | แปลง Segmentation-ulcer COCO → mask |
 | `convert_foot_callus.py` | แปลง Foot Callus Detection COCO → mask |
 | `test_inference.py` | รันโมเดลกับภาพเดี่ยว + สร้างภาพ overlay ผลลัพธ์ |
+| `evaluate_holdout.py` | ประเมินผลแบบไม่มี data leakage (seg_ulcer/test, foot_callus/test) |
+| `batch_test.py` | รันโมเดลกับหลายภาพในโฟลเดอร์เดียว + สรุปสถิติรวม |
 
 ## Checkpoint ปัจจุบัน (ดีที่สุด)
 ```
@@ -108,6 +143,8 @@ C:\VITA_Round3\checkpoints\segformer_b4_5class_r5_best.pth
 ---
 
 ## ขั้นตอนถัดไป
-- [ ] รัน `evaluate_round4.py` เวอร์ชันปรับสำหรับ Round 5 (แยกผลตาม dataset อย่างเป็นทางการสำหรับ paper)
+- [x] รัน `evaluate_holdout.py` เพื่อได้ตัวเลขที่ไม่มี data leakage
+- [x] ทดสอบ generalization กับ dataset ภายนอก
 - [ ] Deploy โมเดลกับ LINE Bot + Web UI (repo `vita-dfu-bot`)
 - [ ] เตรียมเอกสาร/สไลด์สำหรับ ISTEM 2026
+- [ ] (แนะนำ) ให้บุคลากรทางการแพทย์ตรวจสอบภาพผลลัพธ์ตัวอย่าง ยืนยันความถูกต้องของการแยกชนิดเนื้อเยื่อก่อนนำเสนอ
