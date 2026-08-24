@@ -121,7 +121,8 @@ def main():
     out_dir.mkdir(exist_ok=True)
 
     img_paths = sorted([p for p in folder.iterdir()
-                         if p.suffix.lower() in {".jpg", ".jpeg", ".png"}])[:max_images]
+                         if p.suffix.lower() in {".jpg", ".jpeg", ".png"}
+                         and not p.stem.endswith("_result")])[:max_images]
 
     if not img_paths:
         print(f"[ERROR] ไม่พบภาพในโฟลเดอร์ {folder}")
